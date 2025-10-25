@@ -361,7 +361,7 @@ class JoinUnit:
                     # we want to avoid filling with np.nan if we are
                     # using None; we already know that we are all
                     # nulls
-                    values = cast(np.ndarray, self.block.values)
+                    values = cast("np.ndarray", self.block.values)
                     if values.size and values[0, 0] is None:
                         fill_value = None
 
@@ -406,21 +406,25 @@ def _dtype_to_na_value(dtype: DtypeObj, has_none_blocks: bool):
     """
     Find the NA value to go with this dtype.
     """
+    # Fast path for ExtensionDtype
     if isinstance(dtype, ExtensionDtype):
         return dtype.na_value
-    elif dtype.kind in "mM":
+
+    kind = dtype.kind
+
+    if kind in {"m", "M"}:
         return dtype.type("NaT")
-    elif dtype.kind in "fc":
+    if kind in {"f", "c"}:
         return dtype.type("NaN")
-    elif dtype.kind == "b":
+    if kind == "b":
         # different from missing.na_value_for_dtype
         return None
-    elif dtype.kind in "iu":
+    if kind in {"i", "u"}:
         if not has_none_blocks:
             # different from missing.na_value_for_dtype
             return None
         return np.nan
-    elif dtype.kind == "O":
+    if kind == "O":
         return np.nan
     raise NotImplementedError
 
