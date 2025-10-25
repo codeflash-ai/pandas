@@ -35,28 +35,35 @@ from pandas.core.indexes.timedeltas import TimedeltaIndex
 if TYPE_CHECKING:
     from pandas._typing import Axis
 
+_DEFAULT_INDEX_CACHE_SIZE = 32
+
+_DEFAULT_INDEX_CACHE = [
+    RangeIndex._simple_new(range(i), name=None)
+    for i in range(_DEFAULT_INDEX_CACHE_SIZE)
+]
+
 
 __all__ = [
-    "Index",
-    "MultiIndex",
     "CategoricalIndex",
-    "IntervalIndex",
-    "RangeIndex",
-    "InvalidIndexError",
-    "TimedeltaIndex",
-    "PeriodIndex",
     "DatetimeIndex",
-    "_new_Index",
+    "Index",
+    "IntervalIndex",
+    "InvalidIndexError",
+    "MultiIndex",
     "NaT",
+    "PeriodIndex",
+    "RangeIndex",
+    "TimedeltaIndex",
+    "_new_Index",
+    "all_indexes_same",
+    "default_index",
     "ensure_index",
     "ensure_index_from_sequences",
     "get_objs_combined_axis",
-    "union_indexes",
     "get_unanimous_names",
-    "all_indexes_same",
-    "default_index",
-    "safe_sort_index",
     "maybe_sequence_to_range",
+    "safe_sort_index",
+    "union_indexes",
 ]
 
 
@@ -171,7 +178,7 @@ def safe_sort_index(index: Index) -> Index:
         if isinstance(array_sorted, Index):
             return array_sorted
 
-        array_sorted = cast(np.ndarray, array_sorted)
+        array_sorted = cast("np.ndarray", array_sorted)
         if isinstance(index, MultiIndex):
             index = MultiIndex.from_tuples(array_sorted, names=index.names)
         else:
@@ -334,5 +341,7 @@ def all_indexes_same(indexes) -> bool:
 
 
 def default_index(n: int) -> RangeIndex:
+    if 0 <= n < _DEFAULT_INDEX_CACHE_SIZE:
+        return _DEFAULT_INDEX_CACHE[n]
     rng = range(n)
     return RangeIndex._simple_new(rng, name=None)

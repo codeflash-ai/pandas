@@ -417,8 +417,7 @@ def dict_to_mgr(
             else x.copy(deep=True)
             if (
                 isinstance(x, Index)
-                or isinstance(x, ABCSeries)
-                and is_1d_only_ea_dtype(x.dtype)
+                or (isinstance(x, ABCSeries) and is_1d_only_ea_dtype(x.dtype))
             )
             else x
             for x in arrays
@@ -865,7 +864,7 @@ def _finalize_columns_and_data(
         # GH#26429 do not raise user-facing AssertionError
         raise ValueError(err) from err
 
-    if len(contents) and contents[0].dtype == np.object_:
+    if contents and contents[0].dtype == np.object_:
         contents = convert_object_array(contents, dtype=dtype)
 
     return contents, columns
@@ -901,27 +900,31 @@ def _validate_or_indexify_columns(
         columns = default_index(len(content))
     else:
         # Add mask for data which is composed of list of lists
-        is_mi_list = isinstance(columns, list) and all(
-            isinstance(col, list) for col in columns
-        )
+        is_mi_list = isinstance(columns, list)
+        if is_mi_list:
+            for col in columns:
+                if not isinstance(col, list):
+                    is_mi_list = False
+                    break
 
         if not is_mi_list and len(columns) != len(content):  # pragma: no cover
             # caller's responsibility to check for this...
             raise AssertionError(
-                f"{len(columns)} columns passed, passed data had "
-                f"{len(content)} columns"
+                f"{len(columns)} columns passed, passed data had {len(content)} columns"
             )
         if is_mi_list:
             # check if nested list column, length of each sub-list should be equal
-            if len({len(col) for col in columns}) > 1:
-                raise ValueError(
-                    "Length of columns passed for MultiIndex columns is different"
-                )
+            expected_len = len(columns[0]) if columns else 0
+            for col in columns:
+                if len(col) != expected_len:
+                    raise ValueError(
+                        "Length of columns passed for MultiIndex columns is different"
+                    )
 
             # if columns is not empty and length of sublist is not equal to content
-            if columns and len(columns[0]) != len(content):
+            if columns and expected_len != len(content):
                 raise ValueError(
-                    f"{len(columns[0])} columns passed, passed data had "
+                    f"{expected_len} columns passed, passed data had "
                     f"{len(content)} columns"
                 )
     return columns
