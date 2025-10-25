@@ -30,18 +30,32 @@ def shift(
         axis = new_values.ndim - axis - 1
 
     if new_values.size:
-        new_values = np.roll(
-            new_values,
-            np.intp(periods),
-            axis=axis,
-        )
+        # Create output array and directly assign shifted values
+        out = np.empty_like(new_values)
+        n = new_values.shape[axis]
 
-    axis_indexer = [slice(None)] * values.ndim
-    if periods > 0:
-        axis_indexer[axis] = slice(None, periods)
-    else:
-        axis_indexer[axis] = slice(periods, None)
-    new_values[tuple(axis_indexer)] = fill_value
+        if abs(periods) >= n:
+            out.fill(fill_value)
+        elif periods > 0:
+            axis_indexer = [slice(None)] * new_values.ndim
+            axis_indexer[axis] = slice(0, periods)
+            out[tuple(axis_indexer)] = fill_value
+
+            axis_indexer[axis] = slice(0, n - periods)
+            out_indexer = [slice(None)] * new_values.ndim
+            out_indexer[axis] = slice(periods, n)
+            out[tuple(out_indexer)] = new_values[tuple(axis_indexer)]
+        else:
+            axis_indexer = [slice(None)] * new_values.ndim
+            axis_indexer[axis] = slice(n + periods, n)
+            out[tuple(axis_indexer)] = fill_value
+
+            axis_indexer[axis] = slice(-periods, n)
+            out_indexer = [slice(None)] * new_values.ndim
+            out_indexer[axis] = slice(0, n + periods)
+            out[tuple(out_indexer)] = new_values[tuple(axis_indexer)]
+
+        new_values = out
 
     # restore original order
     if f_ordered:
