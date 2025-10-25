@@ -429,15 +429,22 @@ def get_op_from_name(op_name: str) -> Callable:
     function
         A function performing the operation.
     """
+    # Fast path: most common operator names are not reverse ops
     short_opname = op_name.strip("_")
-    try:
-        op = getattr(operator, short_opname)
-    except AttributeError:
-        # Assume it is the reverse operator
-        rop = getattr(operator, short_opname[1:])
-        op = lambda x, y: rop(y, x)
+    # Avoid repeated getattr; cache operator attributes lookup
+    operator_dict = operator.__dict__
 
-    return op
+    op = operator_dict.get(short_opname)
+    if op is not None:
+        return op
+
+    # Assume it is the reverse operator
+    rop = operator_dict.get(short_opname[1:])
+    if rop is None:
+        # This will mirror original code's AttributeError
+        raise AttributeError(f"Operator not found for '{op_name}'")
+
+    return lambda x, y: rop(y, x)
 
 
 # -----------------------------------------------------------------------------
@@ -540,6 +547,25 @@ __all__ = [
     "ALL_INT_NUMPY_DTYPES",
     "ALL_NUMPY_DTYPES",
     "ALL_REAL_NUMPY_DTYPES",
+    "BOOL_DTYPES",
+    "BYTES_DTYPES",
+    "COMPLEX_DTYPES",
+    "DATETIME64_DTYPES",
+    "ENDIAN",
+    "FLOAT_EA_DTYPES",
+    "FLOAT_NUMPY_DTYPES",
+    "NARROW_NP_DTYPES",
+    "NP_NAT_OBJECTS",
+    "NULL_OBJECTS",
+    "OBJECT_DTYPES",
+    "SIGNED_INT_EA_DTYPES",
+    "SIGNED_INT_NUMPY_DTYPES",
+    "STRING_DTYPES",
+    "TIMEDELTA64_DTYPES",
+    "UNSIGNED_INT_EA_DTYPES",
+    "UNSIGNED_INT_NUMPY_DTYPES",
+    "SubclassedDataFrame",
+    "SubclassedSeries",
     "assert_almost_equal",
     "assert_attr_equal",
     "assert_categorical_equal",
@@ -563,51 +589,32 @@ __all__ = [
     "assert_sp_array_equal",
     "assert_timedelta_array_equal",
     "at",
-    "BOOL_DTYPES",
     "box_expected",
-    "BYTES_DTYPES",
     "can_set_locale",
-    "COMPLEX_DTYPES",
     "convert_rows_list_to_csv_str",
-    "DATETIME64_DTYPES",
     "decompress_file",
-    "ENDIAN",
     "ensure_clean",
     "external_error_raised",
-    "FLOAT_EA_DTYPES",
-    "FLOAT_NUMPY_DTYPES",
     "get_cython_table_params",
     "get_dtype",
-    "getitem",
-    "get_locales",
     "get_finest_unit",
+    "get_locales",
     "get_obj",
     "get_op_from_name",
+    "getitem",
     "iat",
     "iloc",
     "loc",
     "maybe_produces_warning",
-    "NARROW_NP_DTYPES",
-    "NP_NAT_OBJECTS",
-    "NULL_OBJECTS",
-    "OBJECT_DTYPES",
     "raise_assert_detail",
     "raises_chained_assignment_error",
     "round_trip_pathlib",
     "round_trip_pickle",
-    "setitem",
     "set_locale",
     "set_timezone",
+    "setitem",
     "shares_memory",
-    "SIGNED_INT_EA_DTYPES",
-    "SIGNED_INT_NUMPY_DTYPES",
-    "STRING_DTYPES",
-    "SubclassedDataFrame",
-    "SubclassedSeries",
-    "TIMEDELTA64_DTYPES",
     "to_array",
-    "UNSIGNED_INT_EA_DTYPES",
-    "UNSIGNED_INT_NUMPY_DTYPES",
     "with_csv_dialect",
     "write_to_compressed",
 ]
