@@ -417,8 +417,7 @@ def dict_to_mgr(
             else x.copy(deep=True)
             if (
                 isinstance(x, Index)
-                or isinstance(x, ABCSeries)
-                and is_1d_only_ea_dtype(x.dtype)
+                or (isinstance(x, ABCSeries) and is_1d_only_ea_dtype(x.dtype))
             )
             else x
             for x in arrays
@@ -704,9 +703,9 @@ def dataclasses_to_dicts(data):
     [{'x': 1, 'y': 2}, {'x': 2, 'y': 3}]
 
     """
-    from dataclasses import asdict
+    from dataclasses import fields
 
-    return list(map(asdict, data))
+    return [{f.name: getattr(obj, f.name) for f in fields(obj)} for obj in data]
 
 
 # ---------------------------------------------------------------------
@@ -865,7 +864,7 @@ def _finalize_columns_and_data(
         # GH#26429 do not raise user-facing AssertionError
         raise ValueError(err) from err
 
-    if len(contents) and contents[0].dtype == np.object_:
+    if contents and contents[0].dtype == np.object_:
         contents = convert_object_array(contents, dtype=dtype)
 
     return contents, columns
@@ -908,8 +907,7 @@ def _validate_or_indexify_columns(
         if not is_mi_list and len(columns) != len(content):  # pragma: no cover
             # caller's responsibility to check for this...
             raise AssertionError(
-                f"{len(columns)} columns passed, passed data had "
-                f"{len(content)} columns"
+                f"{len(columns)} columns passed, passed data had {len(content)} columns"
             )
         if is_mi_list:
             # check if nested list column, length of each sub-list should be equal
