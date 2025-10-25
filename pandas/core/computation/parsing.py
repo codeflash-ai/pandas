@@ -17,6 +17,23 @@ if TYPE_CHECKING:
         Iterator,
     )
 
+_special_characters_replacements = {
+    **{
+        char: f"_{token.tok_name[tokval]}_"
+        for char, tokval in tokenize.EXACT_TOKEN_TYPES.items()
+    },
+    " ": "_",
+    "?": "_QUESTIONMARK_",
+    "!": "_EXCLAMATIONMARK_",
+    "$": "_DOLLARSIGN_",
+    "€": "_EUROSIGN_",
+    "°": "_DEGREESIGN_",
+    "'": "_SINGLEQUOTE_",
+    '"': "_DOUBLEQUOTE_",
+    "#": "_HASH_",
+    "`": "_BACKTICK_",
+}
+
 # A token value Python's tokenizer probably will never use.
 BACKTICK_QUOTED_STRING = 100
 
@@ -37,40 +54,12 @@ def create_valid_python_identifier(name: str) -> str:
     if name.isidentifier() and not iskeyword(name):
         return name
 
-    # Escape characters that fall outside the ASCII range (U+0001..U+007F).
-    # GH 49633
-    gen = (
-        (c, "".join(chr(b) for b in c.encode("ascii", "backslashreplace")))
-        for c in name
-    )
-    name = "".join(
-        c_escaped.replace("\\", "_UNICODE_" if c != c_escaped else "_BACKSLASH_")
-        for c, c_escaped in gen
-    )
+    # Escape Unicode and backslash characters efficiently
+    name = _escape_unicode_and_backslash(name)
 
-    # Create a dict with the special characters and their replacement string.
-    # EXACT_TOKEN_TYPES contains these special characters
-    # token.tok_name contains a readable description of the replacement string.
-    special_characters_replacements = {
-        char: f"_{token.tok_name[tokval]}_"
-        for char, tokval in (tokenize.EXACT_TOKEN_TYPES.items())
-    }
-    special_characters_replacements.update(
-        {
-            " ": "_",
-            "?": "_QUESTIONMARK_",
-            "!": "_EXCLAMATIONMARK_",
-            "$": "_DOLLARSIGN_",
-            "€": "_EUROSIGN_",
-            "°": "_DEGREESIGN_",
-            "'": "_SINGLEQUOTE_",
-            '"': "_DOUBLEQUOTE_",
-            "#": "_HASH_",
-            "`": "_BACKTICK_",
-        }
-    )
+    # Replace special characters in a single pass using precomputed dict
+    name = "".join(_special_characters_replacements.get(char, char) for char in name)
 
-    name = "".join([special_characters_replacements.get(char, char) for char in name])
     name = f"BACKTICK_QUOTED_STRING_{name}"
 
     if not name.isidentifier():
@@ -101,6 +90,7 @@ def clean_backtick_quoted_toks(tok: tuple[int, str]) -> tuple[int, str]:
     """
     toknum, tokval = tok
     if toknum == BACKTICK_QUOTED_STRING:
+        # Directly invoke our optimized identifier creation
         return tokenize.NAME, create_valid_python_identifier(tokval)
     return toknum, tokval
 
@@ -294,3 +284,19 @@ def tokenize_string(source: str) -> Iterator[tuple[int, str]]:
 
     for toknum, tokval, _, _, _ in token_generator:
         yield toknum, tokval
+
+
+def _escape_unicode_and_backslash(name: str) -> str:
+    # Avoid generator overhead: direct list build via iteration
+    parts = []
+    for c in name:
+        c_escaped = c.encode("ascii", "backslashreplace").decode("ascii")
+        if c != c_escaped:
+            # Unicode escapes may look like '\uXXXX', replace '\' safely
+            parts.append(c_escaped.replace("\\", "_UNICODE_"))
+        elif "\\" in c_escaped:
+            # If a literal backslash, treat accordingly
+            parts.append(c_escaped.replace("\\", "_BACKSLASH_"))
+        else:
+            parts.append(c_escaped)
+    return "".join(parts)
