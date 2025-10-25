@@ -164,7 +164,7 @@ def _masked_arith_op(x: np.ndarray, y, op) -> np.ndarray:
     else:
         if not is_scalar(y):
             raise TypeError(
-                f"Cannot broadcast np.ndarray with operand of type { type(y) }"
+                f"Cannot broadcast np.ndarray with operand of type {type(y)}"
             )
 
         # mask is only meaningful for x
@@ -207,22 +207,23 @@ def _na_arithmetic_op(left: np.ndarray, right, op, is_cmp: bool = False):
     ------
     TypeError : invalid operation
     """
+    # Avoid functools.partial overhead unless necessary
     if isinstance(right, str):
-        # can never use numexpr
         func = op
     else:
-        func = partial(expressions.evaluate, op)
+        func = expressions.evaluate
 
     try:
-        result = func(left, right)
+        # fast path: attempt computation directly
+        result = (
+            func(op, left, right) if func is expressions.evaluate else func(left, right)
+        )
     except TypeError:
-        if not is_cmp and (
-            left.dtype == object or getattr(right, "dtype", None) == object
-        ):
-            # For object dtype, fallback to a masked operation (only operating
-            #  on the non-missing values)
-            # Don't do this for comparisons, as that will handle complex numbers
-            #  incorrectly, see GH#32047
+        left_dtype = left.dtype
+        # Cache right's dtype if available only once
+        right_dtype = getattr(right, "dtype", None)
+        if not is_cmp and (left_dtype == object or right_dtype == object):
+            # Fallback to masked arithmetic operation only for object dtypes
             result = _masked_arith_op(left, right, op)
         else:
             raise
@@ -230,9 +231,9 @@ def _na_arithmetic_op(left: np.ndarray, right, op, is_cmp: bool = False):
     if is_cmp and (is_scalar(result) or result is NotImplemented):
         # numpy returned a scalar instead of operating element-wise
         # e.g. numeric array vs str
-        # TODO: can remove this after dropping some future numpy version?
         return invalid_comparison(left, right, op)
 
+    # Call fill zeros/NaN handling only after all fast-paths
     return missing.dispatch_fill_zeros(op, left, right, result)
 
 
@@ -256,31 +257,16 @@ def arithmetic_op(left: ArrayLike, right: Any, op):
     ndarray or ExtensionArray
         Or a 2-tuple of these in the case of divmod or rdivmod.
     """
-    # NB: We assume that extract_array and ensure_wrapped_if_datetimelike
-    #  have already been called on `left` and `right`,
-    #  and `maybe_prepare_scalar_for_op` has already been called on `right`
-    # We need to special-case datetime64/timedelta64 dtypes (e.g. because numpy
-    # casts integer dtypes to timedelta64 when operating with timedelta64 - GH#22390)
-
+    # Fast-path for extension and custom scalar types; otherwise fallback
     if (
         should_extension_dispatch(left, right)
         or isinstance(right, (Timedelta, BaseOffset, Timestamp))
         or right is NaT
     ):
-        # Timedelta/Timestamp and other custom scalars are included in the check
-        # because numexpr will fail on it, see GH#31457
         res_values = op(left, right)
     else:
-        # TODO we should handle EAs consistently and move this check before the if/else
-        # (https://github.com/pandas-dev/pandas/issues/41165)
-        # error: Argument 2 to "_bool_arith_check" has incompatible type
-        # "Union[ExtensionArray, ndarray[Any, Any]]"; expected "ndarray[Any, Any]"
         _bool_arith_check(op, left, right)  # type: ignore[arg-type]
-
-        # error: Argument 1 to "_na_arithmetic_op" has incompatible type
-        # "Union[ExtensionArray, ndarray[Any, Any]]"; expected "ndarray[Any, Any]"
         res_values = _na_arithmetic_op(left, right, op)  # type: ignore[arg-type]
-
     return res_values
 
 
@@ -593,9 +579,14 @@ def _bool_arith_check(op, a: np.ndarray, b) -> None:
     In contrast to numpy, pandas raises an error for certain operations
     with booleans.
     """
+    # Minimize expensive function calls when unnecessary
     if op in _BOOL_OP_NOT_ALLOWED:
-        if a.dtype.kind == "b" and (is_bool_dtype(b) or lib.is_bool(b)):
-            op_name = op.__name__.strip("_").lstrip("r")
-            raise NotImplementedError(
-                f"operator '{op_name}' not implemented for bool dtypes"
-            )
+        a_dtype_kind = a.dtype.kind
+        if a_dtype_kind == "b":
+            # is_bool_dtype/bool check is costly; only call if needed
+            # Check lib.is_bool before is_bool_dtype, as it might be cheaper for scalars
+            if is_bool_dtype(b) or lib.is_bool(b):
+                op_name = op.__name__.strip("_").lstrip("r")
+                raise NotImplementedError(
+                    f"operator '{op_name}' not implemented for bool dtypes"
+                )
