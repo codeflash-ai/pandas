@@ -417,8 +417,7 @@ def dict_to_mgr(
             else x.copy(deep=True)
             if (
                 isinstance(x, Index)
-                or isinstance(x, ABCSeries)
-                and is_1d_only_ea_dtype(x.dtype)
+                or (isinstance(x, ABCSeries) and is_1d_only_ea_dtype(x.dtype))
             )
             else x
             for x in arrays
@@ -510,9 +509,11 @@ def _ensure_2d(values: np.ndarray) -> np.ndarray:
     """
     Reshape 1D values, raise on anything else other than 2D.
     """
-    if values.ndim == 1:
-        values = values.reshape((values.shape[0], 1))
-    elif values.ndim != 2:
+    ndim = values.ndim
+    if ndim == 1:
+        # Avoid unnecessary work if already (N, 1)
+        return values[:, None]
+    if ndim != 2:
         raise ValueError(f"Must pass 2-d input. shape={values.shape}")
     return values
 
@@ -865,7 +866,7 @@ def _finalize_columns_and_data(
         # GH#26429 do not raise user-facing AssertionError
         raise ValueError(err) from err
 
-    if len(contents) and contents[0].dtype == np.object_:
+    if contents and contents[0].dtype == np.object_:
         contents = convert_object_array(contents, dtype=dtype)
 
     return contents, columns
@@ -908,8 +909,7 @@ def _validate_or_indexify_columns(
         if not is_mi_list and len(columns) != len(content):  # pragma: no cover
             # caller's responsibility to check for this...
             raise AssertionError(
-                f"{len(columns)} columns passed, passed data had "
-                f"{len(content)} columns"
+                f"{len(columns)} columns passed, passed data had {len(content)} columns"
             )
         if is_mi_list:
             # check if nested list column, length of each sub-list should be equal
