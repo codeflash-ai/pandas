@@ -1014,7 +1014,7 @@ class SeriesGroupBy(GroupBy[Series]):
 
         if isinstance(lab.dtype, IntervalDtype):
             # TODO: should we do this inside II?
-            lab_interval = cast(Interval, lab)
+            lab_interval = cast("Interval", lab)
 
             sorter = np.lexsort((lab_interval.left, lab_interval.right, ids))
         else:
@@ -1845,9 +1845,9 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
         elif relabeling:
             # this should be the only (non-raising) case with relabeling
             # used reordered index of columns
-            result = cast(DataFrame, result)
+            result = cast("DataFrame", result)
             result = result.iloc[:, order]
-            result = cast(DataFrame, result)
+            result = cast("DataFrame", result)
             # error: Incompatible types in assignment (expression has type
             # "Optional[List[str]]", variable has type
             # "Union[Union[Union[ExtensionArray, ndarray[Any, Any]],
@@ -1895,7 +1895,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
                 else:
                     # GH#32040, GH#35246
                     # e.g. test_groupby_as_index_select_column_sum_empty_df
-                    result = cast(DataFrame, result)
+                    result = cast("DataFrame", result)
                     result.columns = self._obj_with_exclusions.columns.copy()
 
         if not self.as_index:
@@ -2418,7 +2418,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
         )
         results = [func(sgb) for sgb in sgbs]
 
-        if not len(results):
+        if not results:
             # concat would raise
             res_df = DataFrame([], columns=columns, index=self._grouper.result_index)
         else:
@@ -3142,16 +3142,30 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 def _wrap_transform_general_frame(
     obj: DataFrame, group: DataFrame, res: DataFrame | Series
 ) -> DataFrame:
-    from pandas import concat
-
     if isinstance(res, Series):
         # we need to broadcast across the
         # other dimension; this will preserve dtypes
         # GH14457
         if res.index.is_(obj.index):
-            res_frame = concat([res] * len(group.columns), axis=1, ignore_index=True)
-            res_frame.columns = group.columns
-            res_frame.index = group.index
+            # OPTIMIZED: Avoid [res] * len(group.columns) and DataFrame.concat
+            # Instead, broadcast values efficiently and set columns/index
+            ncol = len(group.columns)
+            nrow = len(group.index)
+            if ncol == 1:
+                # Single column: just create a DataFrame directly
+                res_frame = obj._constructor(
+                    res.values.reshape(-1, 1),
+                    columns=group.columns,
+                    index=group.index,
+                )
+            else:
+                # Broadcast efficiently for multiple columns
+                arr = np.broadcast_to(res.values[:, None], (nrow, ncol))
+                res_frame = obj._constructor(
+                    arr, columns=group.columns, index=group.index
+                )
+            assert isinstance(res_frame, DataFrame)
+            return res_frame
         else:
             res_frame = obj._constructor(
                 np.tile(res.values, (len(group.index), 1)),
