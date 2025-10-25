@@ -134,7 +134,7 @@ def maybe_convert_platform(
         arr = values
 
     if arr.dtype == _dtype_obj:
-        arr = cast(np.ndarray, arr)
+        arr = cast("np.ndarray", arr)
         arr = lib.maybe_convert_objects(arr)
 
     return arr
@@ -305,11 +305,11 @@ def maybe_downcast_to_dtype(result: ArrayLike, dtype: str | np.dtype) -> ArrayLi
 
     elif dtype.kind == "m" and result.dtype == _dtype_obj:
         # test_where_downcast_to_td64
-        result = cast(np.ndarray, result)
+        result = cast("np.ndarray", result)
         result = array_to_timedelta64(result)
 
     elif dtype == np.dtype("M8[ns]") and result.dtype == _dtype_obj:
-        result = cast(np.ndarray, result)
+        result = cast("np.ndarray", result)
         return np.asarray(maybe_cast_to_datetime(result, dtype=dtype))
 
     return result
@@ -511,12 +511,42 @@ def _maybe_cast_to_extension_array(
     return result
 
 
-@overload
-def ensure_dtype_can_hold_na(dtype: np.dtype) -> np.dtype: ...
+def ensure_dtype_can_hold_na(dtype: np.dtype) -> np.dtype:
+    """
+    If we have a dtype that cannot hold NA values, find the best match that can.
+    """
+    if isinstance(dtype, ExtensionDtype):
+        if dtype._can_hold_na:
+            return dtype
+        elif isinstance(dtype, IntervalDtype):
+            # TODO(GH#45349): don't special-case IntervalDtype, allow
+            #  overriding instead of returning object below.
+            return IntervalDtype(np.float64, closed=dtype.closed)
+        return _dtype_obj
+    elif dtype.kind == "b":
+        return _dtype_obj
+    elif dtype.kind in "iu":
+        return np.dtype(np.float64)
+    return dtype
 
 
-@overload
-def ensure_dtype_can_hold_na(dtype: ExtensionDtype) -> ExtensionDtype: ...
+def ensure_dtype_can_hold_na(dtype: ExtensionDtype) -> ExtensionDtype:
+    """
+    If we have a dtype that cannot hold NA values, find the best match that can.
+    """
+    if isinstance(dtype, ExtensionDtype):
+        if dtype._can_hold_na:
+            return dtype
+        elif isinstance(dtype, IntervalDtype):
+            # TODO(GH#45349): don't special-case IntervalDtype, allow
+            #  overriding instead of returning object below.
+            return IntervalDtype(np.float64, closed=dtype.closed)
+        return _dtype_obj
+    elif dtype.kind == "b":
+        return _dtype_obj
+    elif dtype.kind in "iu":
+        return np.dtype(np.float64)
+    return dtype
 
 
 def ensure_dtype_can_hold_na(dtype: DtypeObj) -> DtypeObj:
@@ -1423,16 +1453,196 @@ def np_find_common_type(*dtypes: np.dtype) -> np.dtype:
     return common_dtype
 
 
-@overload
-def find_common_type(types: list[np.dtype]) -> np.dtype: ...
+def find_common_type(types: list[np.dtype]) -> np.dtype:
+    """
+    Find a common data type among the given dtypes.
+
+    Parameters
+    ----------
+    types : list of dtypes
+
+    Returns
+    -------
+    pandas extension or numpy dtype
+
+    See Also
+    --------
+    numpy.find_common_type
+
+    """
+    if not types:
+        raise ValueError("no types given")
+
+    first = types[0]
+
+    if lib.dtypes_all_equal(types):
+        return first
+
+    # get unique types (preserve order, avoid dict/set overhead)
+    types = _ordered_unique(types)
+
+    # Fast-path: check for ExtensionDtype just once for all
+    ext_present = False
+    ext_types = []
+    for t in types:
+        is_ext = isinstance(t, ExtensionDtype)
+        ext_present = ext_present or is_ext
+        if is_ext:
+            ext_types.append(t)
+
+    if ext_present:
+        for t in ext_types:
+            res = t._get_common_dtype(types)
+            if res is not None:
+                return res
+        return np.dtype("object")
+
+    # take lowest unit
+    if all(lib.is_np_dtype(t, "M") for t in types):
+        return np.dtype(max(types))
+    if all(lib.is_np_dtype(t, "m") for t in types):
+        return np.dtype(max(types))
+
+    # don't mix bool / int or float or complex
+    has_bools = False
+    for t in types:
+        if t.kind == "b":
+            has_bools = True
+            break
+    if has_bools:
+        for t in types:
+            if t.kind in "iufc":
+                return np.dtype("object")
+
+    return np_find_common_type(*types)
 
 
-@overload
-def find_common_type(types: list[ExtensionDtype]) -> DtypeObj: ...
+def find_common_type(types: list[ExtensionDtype]) -> DtypeObj:
+    """
+    Find a common data type among the given dtypes.
+
+    Parameters
+    ----------
+    types : list of dtypes
+
+    Returns
+    -------
+    pandas extension or numpy dtype
+
+    See Also
+    --------
+    numpy.find_common_type
+
+    """
+    if not types:
+        raise ValueError("no types given")
+
+    first = types[0]
+
+    if lib.dtypes_all_equal(types):
+        return first
+
+    # get unique types (preserve order, avoid dict/set overhead)
+    types = _ordered_unique(types)
+
+    # Fast-path: check for ExtensionDtype just once for all
+    ext_present = False
+    ext_types = []
+    for t in types:
+        is_ext = isinstance(t, ExtensionDtype)
+        ext_present = ext_present or is_ext
+        if is_ext:
+            ext_types.append(t)
+
+    if ext_present:
+        for t in ext_types:
+            res = t._get_common_dtype(types)
+            if res is not None:
+                return res
+        return np.dtype("object")
+
+    # take lowest unit
+    if all(lib.is_np_dtype(t, "M") for t in types):
+        return np.dtype(max(types))
+    if all(lib.is_np_dtype(t, "m") for t in types):
+        return np.dtype(max(types))
+
+    # don't mix bool / int or float or complex
+    has_bools = False
+    for t in types:
+        if t.kind == "b":
+            has_bools = True
+            break
+    if has_bools:
+        for t in types:
+            if t.kind in "iufc":
+                return np.dtype("object")
+
+    return np_find_common_type(*types)
 
 
-@overload
-def find_common_type(types: list[DtypeObj]) -> DtypeObj: ...
+def find_common_type(types: list[DtypeObj]) -> DtypeObj:
+    """
+    Find a common data type among the given dtypes.
+
+    Parameters
+    ----------
+    types : list of dtypes
+
+    Returns
+    -------
+    pandas extension or numpy dtype
+
+    See Also
+    --------
+    numpy.find_common_type
+
+    """
+    if not types:
+        raise ValueError("no types given")
+
+    first = types[0]
+
+    if lib.dtypes_all_equal(types):
+        return first
+
+    # get unique types (preserve order, avoid dict/set overhead)
+    types = _ordered_unique(types)
+
+    # Fast-path: check for ExtensionDtype just once for all
+    ext_present = False
+    ext_types = []
+    for t in types:
+        is_ext = isinstance(t, ExtensionDtype)
+        ext_present = ext_present or is_ext
+        if is_ext:
+            ext_types.append(t)
+
+    if ext_present:
+        for t in ext_types:
+            res = t._get_common_dtype(types)
+            if res is not None:
+                return res
+        return np.dtype("object")
+
+    # take lowest unit
+    if all(lib.is_np_dtype(t, "M") for t in types):
+        return np.dtype(max(types))
+    if all(lib.is_np_dtype(t, "m") for t in types):
+        return np.dtype(max(types))
+
+    # don't mix bool / int or float or complex
+    has_bools = False
+    for t in types:
+        if t.kind == "b":
+            has_bools = True
+            break
+    if has_bools:
+        for t in types:
+            if t.kind in "iufc":
+                return np.dtype("object")
+
+    return np_find_common_type(*types)
 
 
 def find_common_type(types):
@@ -1457,20 +1667,26 @@ def find_common_type(types):
 
     first = types[0]
 
-    # workaround for find_common_type([np.dtype('datetime64[ns]')] * 2)
-    # => object
-    if lib.dtypes_all_equal(list(types)):
+    if lib.dtypes_all_equal(types):
         return first
 
-    # get unique types (dict.fromkeys is used as order-preserving set())
-    types = list(dict.fromkeys(types).keys())
+    # get unique types (preserve order, avoid dict/set overhead)
+    types = _ordered_unique(types)
 
-    if any(isinstance(t, ExtensionDtype) for t in types):
-        for t in types:
-            if isinstance(t, ExtensionDtype):
-                res = t._get_common_dtype(types)
-                if res is not None:
-                    return res
+    # Fast-path: check for ExtensionDtype just once for all
+    ext_present = False
+    ext_types = []
+    for t in types:
+        is_ext = isinstance(t, ExtensionDtype)
+        ext_present = ext_present or is_ext
+        if is_ext:
+            ext_types.append(t)
+
+    if ext_present:
+        for t in ext_types:
+            res = t._get_common_dtype(types)
+            if res is not None:
+                return res
         return np.dtype("object")
 
     # take lowest unit
@@ -1480,8 +1696,11 @@ def find_common_type(types):
         return np.dtype(max(types))
 
     # don't mix bool / int or float or complex
-    # this is different from numpy, which casts bool with float/int as int
-    has_bools = any(t.kind == "b" for t in types)
+    has_bools = False
+    for t in types:
+        if t.kind == "b":
+            has_bools = True
+            break
     if has_bools:
         for t in types:
             if t.kind in "iufc":
@@ -1653,7 +1872,7 @@ def maybe_cast_to_integer_array(arr: list | np.ndarray, dtype: np.dtype) -> np.n
                 # (test_constructor_coercion_signed_to_unsigned) so safe to ignore.
                 warnings.filterwarnings(
                     "ignore",
-                    "NumPy will stop allowing conversion of " "out-of-bound Python int",
+                    "NumPy will stop allowing conversion of out-of-bound Python int",
                     DeprecationWarning,
                 )
                 casted = np.asarray(arr, dtype=dtype)
@@ -1980,3 +2199,14 @@ def np_can_cast_scalar(element: Scalar, dtype: np.dtype) -> bool:
         return True
     except (LossySetitemError, NotImplementedError):
         return False
+
+
+def _ordered_unique(seq):
+    """Helper: preserve order, remove duplicates, avoid dict/set overhead."""
+    seen = set()
+    out = []
+    for x in seq:
+        if x not in seen:
+            out.append(x)
+            seen.add(x)
+    return out
