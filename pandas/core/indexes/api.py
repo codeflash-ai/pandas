@@ -37,26 +37,26 @@ if TYPE_CHECKING:
 
 
 __all__ = [
-    "Index",
-    "MultiIndex",
     "CategoricalIndex",
-    "IntervalIndex",
-    "RangeIndex",
-    "InvalidIndexError",
-    "TimedeltaIndex",
-    "PeriodIndex",
     "DatetimeIndex",
-    "_new_Index",
+    "Index",
+    "IntervalIndex",
+    "InvalidIndexError",
+    "MultiIndex",
     "NaT",
+    "PeriodIndex",
+    "RangeIndex",
+    "TimedeltaIndex",
+    "_new_Index",
+    "all_indexes_same",
+    "default_index",
     "ensure_index",
     "ensure_index_from_sequences",
     "get_objs_combined_axis",
-    "union_indexes",
     "get_unanimous_names",
-    "all_indexes_same",
-    "default_index",
-    "safe_sort_index",
     "maybe_sequence_to_range",
+    "safe_sort_index",
+    "union_indexes",
 ]
 
 
@@ -98,10 +98,13 @@ def _get_distinct_objs(objs: list[Index]) -> list[Index]:
     """
     ids: set[int] = set()
     res = []
+    append = res.append  # Local binding for faster lookup
+    add_id = ids.add  # Local binding for faster lookup
     for obj in objs:
-        if id(obj) not in ids:
-            ids.add(id(obj))
-            res.append(obj)
+        obj_id = id(obj)
+        if obj_id not in ids:
+            add_id(obj_id)
+            append(obj)
     return res
 
 
@@ -171,7 +174,7 @@ def safe_sort_index(index: Index) -> Index:
         if isinstance(array_sorted, Index):
             return array_sorted
 
-        array_sorted = cast(np.ndarray, array_sorted)
+        array_sorted = cast("np.ndarray", array_sorted)
         if isinstance(index, MultiIndex):
             index = MultiIndex.from_tuples(array_sorted, names=index.names)
         else:
