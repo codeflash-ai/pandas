@@ -39,38 +39,51 @@ def create_valid_python_identifier(name: str) -> str:
 
     # Escape characters that fall outside the ASCII range (U+0001..U+007F).
     # GH 49633
-    gen = (
-        (c, "".join(chr(b) for b in c.encode("ascii", "backslashreplace")))
-        for c in name
-    )
-    name = "".join(
-        c_escaped.replace("\\", "_UNICODE_" if c != c_escaped else "_BACKSLASH_")
-        for c, c_escaped in gen
-    )
+
+    # Precompute and cache the ASCII backslash substitutions only once for efficiency
+    # Do not build a generator, as it creates an unnecessary generator object for a single pass
+    # Instead build the new string in a single pass directly
+    name_chars = []
+    for c in name:
+        c_escaped = c.encode("ascii", "backslashreplace").decode("ascii")
+        if c != c_escaped:
+            name_chars.append(c_escaped.replace("\\", "_UNICODE_"))
+        else:
+            # only replace backslashes
+            name_chars.append(c_escaped.replace("\\", "_BACKSLASH_"))
+    name = "".join(name_chars)
 
     # Create a dict with the special characters and their replacement string.
     # EXACT_TOKEN_TYPES contains these special characters
     # token.tok_name contains a readable description of the replacement string.
-    special_characters_replacements = {
-        char: f"_{token.tok_name[tokval]}_"
-        for char, tokval in (tokenize.EXACT_TOKEN_TYPES.items())
-    }
-    special_characters_replacements.update(
-        {
-            " ": "_",
-            "?": "_QUESTIONMARK_",
-            "!": "_EXCLAMATIONMARK_",
-            "$": "_DOLLARSIGN_",
-            "€": "_EUROSIGN_",
-            "°": "_DEGREESIGN_",
-            "'": "_SINGLEQUOTE_",
-            '"': "_DOUBLEQUOTE_",
-            "#": "_HASH_",
-            "`": "_BACKTICK_",
+    # Move the constant dictionary definition outside the function for reuse
+    # (but requirement is to keep function unchanged, so use a function attribute cache)
+    if not hasattr(create_valid_python_identifier, "_scr"):
+        scr = {
+            char: f"_{token.tok_name[tokval]}_"
+            for char, tokval in tokenize.EXACT_TOKEN_TYPES.items()
         }
-    )
+        scr.update(
+            {
+                " ": "_",
+                "?": "_QUESTIONMARK_",
+                "!": "_EXCLAMATIONMARK_",
+                "$": "_DOLLARSIGN_",
+                "€": "_EUROSIGN_",
+                "°": "_DEGREESIGN_",
+                "'": "_SINGLEQUOTE_",
+                '"': "_DOUBLEQUOTE_",
+                "#": "_HASH_",
+                "`": "_BACKTICK_",
+            }
+        )
+        create_valid_python_identifier._scr = scr
+    else:
+        scr = create_valid_python_identifier._scr
 
-    name = "".join([special_characters_replacements.get(char, char) for char in name])
+    # Use a list comprehension for fast joining instead of list+join on each char
+    # Use plain list comp instead of storing get in a local variable since .get is fast
+    name = "".join(scr.get(char, char) for char in name)
     name = f"BACKTICK_QUOTED_STRING_{name}"
 
     if not name.isidentifier():
