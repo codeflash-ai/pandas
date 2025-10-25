@@ -361,7 +361,7 @@ class JoinUnit:
                     # we want to avoid filling with np.nan if we are
                     # using None; we already know that we are all
                     # nulls
-                    values = cast(np.ndarray, self.block.values)
+                    values = cast("np.ndarray", self.block.values)
                     if values.size and values[0, 0] is None:
                         fill_value = None
 
@@ -457,23 +457,28 @@ def _is_uniform_join_units(join_units: list[JoinUnit]) -> bool:
     _concatenate_join_units (which uses `concat_compat`).
 
     """
-    first = join_units[0].block
-    if first.dtype.kind == "V":
+    first_ju = join_units[0]
+    first_block = first_ju.block
+    first_block_type = type(first_block)
+    first_dtype = first_block.dtype
+    first_kind = first_dtype.kind
+
+    # Fast path: if first is void, always return False
+    if first_kind == "V":
         return False
-    return (
-        # exclude cases where a) ju.block is None or b) we have e.g. Int64+int64
-        all(type(ju.block) is type(first) for ju in join_units)
-        and
-        # e.g. DatetimeLikeBlock can be dt64 or td64, but these are not uniform
-        all(
-            ju.block.dtype == first.dtype
-            # GH#42092 we only want the dtype_equal check for non-numeric blocks
-            #  (for now, may change but that would need a deprecation)
-            or ju.block.dtype.kind in "iub"
-            for ju in join_units
-        )
-        and
-        # no blocks that would get missing values (can lead to type upcasts)
-        # unless we're an extension dtype.
-        all(not ju.is_na or ju.block.is_extension for ju in join_units)
-    )
+
+    # Combine the three all()-loops into a single efficient loop
+    for ju in join_units:
+        block = ju.block
+        dtype = block.dtype
+        # 1. uniform block type
+        if type(block) is not first_block_type:
+            return False
+        # 2. uniform dtype, except for specific numeric dtypes
+        if not (dtype == first_dtype or dtype.kind in "iub"):
+            return False
+        # 3. no NA unless extension
+        if ju.is_na and not block.is_extension:
+            return False
+
+    return True
