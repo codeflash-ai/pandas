@@ -408,11 +408,12 @@ class UnaryOp(ops.UnaryOp):
         operand = operand.prune(klass)
 
         if operand is not None and (
-            issubclass(klass, ConditionBinOp)
-            and operand.condition is not None
-            or not issubclass(klass, ConditionBinOp)
-            and issubclass(klass, FilterBinOp)
-            and operand.filter is not None
+            (issubclass(klass, ConditionBinOp) and operand.condition is not None)
+            or (
+                not issubclass(klass, ConditionBinOp)
+                and issubclass(klass, FilterBinOp)
+                and operand.filter is not None
+            )
         ):
             return operand.invert()
         return None
@@ -659,7 +660,32 @@ def maybe_expression(s) -> bool:
     """loose checking if s is a pytables-acceptable expression"""
     if not isinstance(s, str):
         return False
-    operations = PyTablesExprVisitor.binary_ops + PyTablesExprVisitor.unary_ops + ("=",)
+    # Cache combined operations for better performance
+    # Assuming PyTablesExprVisitor.binary_ops and unary_ops are tuples of strings.
+    # Avoid concatenation on every call by caching value.
+    # '=' is always a string, so combining and sorting is fine.
+    # The fastest check for substring is with regex alternation.
+    # But since behavior MUST match, use a set for lookup only if exact matches were required;
+    # Here, we must check if any op occurs as substring, so keep "op in s" logic.
+    # Instead, optimize by checking the shortest ops first, reducing work for NO cases earlier.
 
-    # make sure we have an op at least
-    return any(op in s for op in operations)
+    # Best: Cache the list in a constant order outside the function
+    if not hasattr(maybe_expression, "_operations"):
+        maybe_expression._operations = (
+            PyTablesExprVisitor.binary_ops + PyTablesExprVisitor.unary_ops + ("=",)
+        )
+    operations = maybe_expression._operations
+
+    s_view = s
+    # Small optimization: sort operators by length, shortest first, so 'any' can short-circuit faster
+    # Only do the sort once, at cache time
+    # So only update this cache once
+    if not hasattr(maybe_expression, "_sorted_operations"):
+        maybe_expression._sorted_operations = tuple(sorted(operations, key=len))
+    sorted_operations = maybe_expression._sorted_operations
+
+    # Use for loop to short-circuit as fast as possible (slightly faster than generator for very high hit rates)
+    for op in sorted_operations:
+        if op in s_view:
+            return True
+    return False
