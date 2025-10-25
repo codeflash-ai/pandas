@@ -18,6 +18,10 @@ def get_console_size() -> tuple[int | None, int | None]:
     display_width = get_option("display.width")
     display_height = get_option("display.max_rows")
 
+    # If both options are set, return early without terminal detection
+    if display_width is not None and display_height is not None:
+        return display_width, display_height
+
     # Consider
     # interactive shell terminal, can detect term size
     # interactive non-shell terminal (ipnb/ipqtconsole), cannot detect term
