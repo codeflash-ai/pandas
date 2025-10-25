@@ -408,11 +408,12 @@ class UnaryOp(ops.UnaryOp):
         operand = operand.prune(klass)
 
         if operand is not None and (
-            issubclass(klass, ConditionBinOp)
-            and operand.condition is not None
-            or not issubclass(klass, ConditionBinOp)
-            and issubclass(klass, FilterBinOp)
-            and operand.filter is not None
+            (issubclass(klass, ConditionBinOp) and operand.condition is not None)
+            or (
+                not issubclass(klass, ConditionBinOp)
+                and issubclass(klass, FilterBinOp)
+                and operand.filter is not None
+            )
         ):
             return operand.invert()
         return None
@@ -519,13 +520,15 @@ def _validate_where(w):
     ------
     TypeError : An invalid data type was passed in for w (e.g. dict).
     """
-    if not (isinstance(w, (PyTablesExpr, str)) or is_list_like(w)):
+    if isinstance(w, (PyTablesExpr, str)):
+        return w
+    elif is_list_like(w):
+        return w
+    else:
         raise TypeError(
             "where must be passed as a string, PyTablesExpr, "
             "or list-like of PyTablesExpr"
         )
-
-    return w
 
 
 class PyTablesExpr(expr.Expr):
