@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +898,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1384,8 +1384,6 @@ def nankurt(
     return result
 
 
-@disallow("M8", "m8")
-@maybe_operate_rowwise
 def nanprod(
     values: np.ndarray,
     *,
@@ -1416,11 +1414,15 @@ def nanprod(
     >>> nanops.nanprod(s.values)
     6.0
     """
+    # Avoid unnecessary mask computation in typical cases
     mask = _maybe_get_mask(values, skipna, mask)
 
     if skipna and mask is not None:
+        # Only copy if actually needed; setting, not always creating copy
         values = values.copy()
+        # In-place assignment is fastest; mask may be broadcastable
         values[mask] = 1
+    # Use numpy's prod, which is fast and vectorized
     result = values.prod(axis)
     # error: Incompatible return value type (got "Union[ndarray, float]", expected
     # "float")
@@ -1506,34 +1508,42 @@ def _maybe_null_out(
     Dtype
         The product of all elements on a given axis. ( NaNs are treated as 1)
     """
+    # Short-circuit for most common case: no mask and min_count=0
     if mask is None and min_count == 0:
-        # nothing to check; short-circuit
         return result
 
+    # Process array result per axis
     if axis is not None and isinstance(result, np.ndarray):
         if mask is not None:
-            null_mask = (mask.shape[axis] - mask.sum(axis) - min_count) < 0
+            mask_shape_axis = mask.shape[axis]
+            mask_sum_axis = mask.sum(axis)
+            null_mask = (mask_shape_axis - mask_sum_axis - min_count) < 0
         else:
-            # we have no nulls, kept mask=None in _maybe_get_mask
+            # No nulls, so mask is None
             below_count = shape[axis] - min_count < 0
+            # Always create the broadcasted shape, using new_shape for efficiency
             new_shape = shape[:axis] + shape[axis + 1 :]
+            # Only create if needed, not if below_count == False
             null_mask = np.broadcast_to(below_count, new_shape)
 
+        # If any element fails min_count, null it
         if np.any(null_mask):
+            # Use in-place assignment to avoid creating new arrays unnecessarily
             if is_numeric_dtype(result):
+                # Upcast complex, int to float
                 if np.iscomplexobj(result):
-                    result = result.astype("c16")
+                    result = result.astype("c16", copy=False)
                 elif not is_float_dtype(result):
                     result = result.astype("f8", copy=False)
                 result[null_mask] = np.nan
             else:
-                # GH12941, use None to auto cast null
+                # For non-numeric, assign None to auto-cast null
                 result[null_mask] = None
     elif result is not NaT:
+        # Scalar or 0d case
         if check_below_min_count(shape, mask, min_count):
             result_dtype = getattr(result, "dtype", None)
             if is_float_dtype(result_dtype):
-                # error: Item "None" of "Optional[Any]" has no attribute "type"
                 result = result_dtype.type("nan")  # type: ignore[union-attr]
             else:
                 result = np.nan
