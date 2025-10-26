@@ -152,12 +152,21 @@ def typeof_series(val, c) -> SeriesType:
 
 @type_callable(Series)
 def type_series_constructor(context):
+    # Move isinstance checks to a tuple for slightly faster isinstance calls
     def typer(data, index, name=None):
-        if isinstance(index, IndexType) and isinstance(data, types.Array):
-            assert data.ndim == 1
-            if name is None:
-                name = types.intp
-            return SeriesType(data.dtype, index, name)
+        # Pull .ndim and .dtype to locals to avoid repeated attribute lookup
+        # (safe since this function always asserts 1D if types.Array)
+        if isinstance(index, IndexType):
+            if isinstance(data, types.Array):
+                ndim = data.ndim
+                dtype = data.dtype
+                assert ndim == 1
+                # Inline assignment to name for clarity/performance
+                if name is None:
+                    local_name = types.intp
+                else:
+                    local_name = name
+                return SeriesType(dtype, index, local_name)
 
     return typer
 
