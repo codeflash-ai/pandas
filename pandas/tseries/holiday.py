@@ -44,9 +44,10 @@ def next_monday(dt: datetime) -> datetime:
     If holiday falls on Saturday, use following Monday instead;
     if holiday falls on Sunday, use Monday instead
     """
-    if dt.weekday() == 5:
+    weekday = dt.weekday()
+    if weekday == 5:
         return dt + timedelta(2)
-    elif dt.weekday() == 6:
+    elif weekday == 6:
         return dt + timedelta(1)
     return dt
 
@@ -636,12 +637,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +655,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
