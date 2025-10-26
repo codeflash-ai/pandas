@@ -486,51 +486,68 @@ def shares_memory(left, right) -> bool:
     """
     Pandas-compat for np.shares_memory.
     """
-    if isinstance(left, np.ndarray) and isinstance(right, np.ndarray):
-        return np.shares_memory(left, right)
-    elif isinstance(left, np.ndarray):
-        # Call with reversed args to get to unpacking logic below.
+    # Fast path for numpy arrays using direct type check
+    if isinstance(left, np.ndarray):
+        if isinstance(right, np.ndarray):
+            return np.shares_memory(left, right)
+        # If only left is ndarray, swap and check the right type in next invocation
         return shares_memory(right, left)
 
+    # Fast fail for RangeIndex (never shares memory)
     if isinstance(left, RangeIndex):
         return False
+
+    # MultiIndex: only ever interested in codes; shortcut for NDArrayBackedExtensionArray handling
     if isinstance(left, MultiIndex):
         return shares_memory(left._codes, right)
+
+    # Index and Series
     if isinstance(left, (Index, Series)):
         if isinstance(right, (Index, Series)):
             return shares_memory(left._values, right._values)
         return shares_memory(left._values, right)
 
+    # NDArrayBackedExtensionArray: always check underlying ndarray
     if isinstance(left, NDArrayBackedExtensionArray):
         return shares_memory(left._ndarray, right)
+
+    # pd.core.arrays.SparseArray: always check Dense values
     if isinstance(left, pd.core.arrays.SparseArray):
         return shares_memory(left.sp_values, right)
-    if isinstance(left, pd.core.arrays.IntervalArray):
-        return shares_memory(left._left, right) or shares_memory(left._right, right)
 
+    # pd.core.arrays.IntervalArray: check both left and right boundaries concurrently
+    if isinstance(left, pd.core.arrays.IntervalArray):
+        left_result = shares_memory(left._left, right)
+        # Short-circuit if left boundary already shares memory
+        if left_result:
+            return True
+        return shares_memory(left._right, right)
+
+    # ArrowExtensionArray: special buffers comparison, minimize chunk/buffers calls
     if isinstance(left, ArrowExtensionArray):
         if isinstance(right, ArrowExtensionArray):
-            # https://github.com/pandas-dev/pandas/pull/43930#discussion_r736862669
-            left_pa_data = left._pa_array
-            right_pa_data = right._pa_array
-            left_buf1 = left_pa_data.chunk(0).buffers()[1]
-            right_buf1 = right_pa_data.chunk(0).buffers()[1]
-            return left_buf1.address == right_buf1.address
+            # PERF: Buffers/index are always the same pattern for ArrowExtensionArray
+            left_chunk = left._pa_array.chunk(0)
+            right_chunk = right._pa_array.chunk(0)
+            left_bufs = left_chunk.buffers()
+            right_bufs = right_chunk.buffers()
+            # Since only buffers()[1] may hold actual data, compare their buffer address
+            return left_bufs[1].address == right_bufs[1].address
         else:
-            # if we have one one ArrowExtensionArray and one other array, assume
-            # they can only share memory if they share the same numpy buffer
+            # Only possibility: underlying numpy shares memory with the Arrow
             return np.shares_memory(left, right)
 
+    # BaseMaskedArray: Short-circuit OR for underlying data and mask; only call shares_memory if necessary
     if isinstance(left, BaseMaskedArray) and isinstance(right, BaseMaskedArray):
-        # By convention, we'll say these share memory if they share *either*
-        #  the _data or the _mask
-        return np.shares_memory(left._data, right._data) or np.shares_memory(
-            left._mask, right._mask
-        )
+        if np.shares_memory(left._data, right._data):
+            return True
+        return np.shares_memory(left._mask, right._mask)
 
-    if isinstance(left, DataFrame) and len(left._mgr.blocks) == 1:
-        arr = left._mgr.blocks[0].values
-        return shares_memory(arr, right)
+    # DataFrame single block: minimize to array lookup/access; avoid repeated block access
+    if isinstance(left, DataFrame):
+        blocks = left._mgr.blocks
+        if len(blocks) == 1:
+            return shares_memory(blocks[0].values, right)
 
     raise NotImplementedError(type(left), type(right))
 
@@ -540,6 +557,25 @@ __all__ = [
     "ALL_INT_NUMPY_DTYPES",
     "ALL_NUMPY_DTYPES",
     "ALL_REAL_NUMPY_DTYPES",
+    "BOOL_DTYPES",
+    "BYTES_DTYPES",
+    "COMPLEX_DTYPES",
+    "DATETIME64_DTYPES",
+    "ENDIAN",
+    "FLOAT_EA_DTYPES",
+    "FLOAT_NUMPY_DTYPES",
+    "NARROW_NP_DTYPES",
+    "NP_NAT_OBJECTS",
+    "NULL_OBJECTS",
+    "OBJECT_DTYPES",
+    "SIGNED_INT_EA_DTYPES",
+    "SIGNED_INT_NUMPY_DTYPES",
+    "STRING_DTYPES",
+    "TIMEDELTA64_DTYPES",
+    "UNSIGNED_INT_EA_DTYPES",
+    "UNSIGNED_INT_NUMPY_DTYPES",
+    "SubclassedDataFrame",
+    "SubclassedSeries",
     "assert_almost_equal",
     "assert_attr_equal",
     "assert_categorical_equal",
@@ -563,51 +599,32 @@ __all__ = [
     "assert_sp_array_equal",
     "assert_timedelta_array_equal",
     "at",
-    "BOOL_DTYPES",
     "box_expected",
-    "BYTES_DTYPES",
     "can_set_locale",
-    "COMPLEX_DTYPES",
     "convert_rows_list_to_csv_str",
-    "DATETIME64_DTYPES",
     "decompress_file",
-    "ENDIAN",
     "ensure_clean",
     "external_error_raised",
-    "FLOAT_EA_DTYPES",
-    "FLOAT_NUMPY_DTYPES",
     "get_cython_table_params",
     "get_dtype",
-    "getitem",
-    "get_locales",
     "get_finest_unit",
+    "get_locales",
     "get_obj",
     "get_op_from_name",
+    "getitem",
     "iat",
     "iloc",
     "loc",
     "maybe_produces_warning",
-    "NARROW_NP_DTYPES",
-    "NP_NAT_OBJECTS",
-    "NULL_OBJECTS",
-    "OBJECT_DTYPES",
     "raise_assert_detail",
     "raises_chained_assignment_error",
     "round_trip_pathlib",
     "round_trip_pickle",
-    "setitem",
     "set_locale",
     "set_timezone",
+    "setitem",
     "shares_memory",
-    "SIGNED_INT_EA_DTYPES",
-    "SIGNED_INT_NUMPY_DTYPES",
-    "STRING_DTYPES",
-    "SubclassedDataFrame",
-    "SubclassedSeries",
-    "TIMEDELTA64_DTYPES",
     "to_array",
-    "UNSIGNED_INT_EA_DTYPES",
-    "UNSIGNED_INT_NUMPY_DTYPES",
     "with_csv_dialect",
     "write_to_compressed",
 ]
