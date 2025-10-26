@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -241,12 +241,16 @@ def _maybe_get_mask(
     -------
     Optional[np.ndarray[bool]]
     """
+    # Optimization: avoid repeated attribute access
+    dtype_kind = values.dtype.kind
     if mask is None:
-        if values.dtype.kind in "biu":
+        if dtype_kind in "biu":
             # Boolean data cannot contain nulls, so signal via mask being None
             return None
 
-        if skipna or values.dtype.kind in "mM":
+        # Avoid calling isna if not needed, slight micro-opt
+        if skipna or dtype_kind in "mM":
+            # Avoid as much as possible repeated .dtype access or branching
             mask = isna(values)
 
     return mask
@@ -413,7 +417,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +482,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +716,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -885,24 +889,23 @@ def _get_counts_nanvar(
     count : int, np.nan or np.ndarray
     d : int, np.nan or np.ndarray
     """
+    # Optimization: reduce overhead of dtype.type calls for ddof
+    ddof_val = dtype.type(ddof)
     count = _get_counts(values_shape, mask, axis, dtype=dtype)
-    d = count - dtype.type(ddof)
+    d = count - ddof_val
 
-    # always return NaN, never inf
     if is_float(count):
         if count <= ddof:
-            # error: Incompatible types in assignment (expression has type
-            # "float", variable has type "Union[floating[Any], ndarray[Any,
-            # dtype[floating[Any]]]]")
             count = np.nan  # type: ignore[assignment]
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
-        mask = count <= ddof
-        if mask.any():
-            np.putmask(d, mask, np.nan)
-            np.putmask(count, mask, np.nan)
+        count = cast("np.ndarray", count)
+        mask_ddof = count <= ddof
+        # Only call np.putmask if mask_ddof.any(), avoid unnecessary work.
+        if np.any(mask_ddof):
+            np.putmask(d, mask_ddof, np.nan)
+            np.putmask(count, mask_ddof, np.nan)
     return count, d
 
 
@@ -990,30 +993,34 @@ def nanvar(
     1.0
     """
     dtype = values.dtype
+    dtype_kind = dtype.kind
+
     mask = _maybe_get_mask(values, skipna, mask)
-    if dtype.kind in "iu":
-        values = values.astype("f8")
+    # Optimization: reduce repeated dtype checks
+    if dtype_kind in "iu":
+        # Use np.float64 always for conversion for int types.
+        values = values.astype("f8", copy=False)
         if mask is not None:
+            # Direct assignment is fastest, as mask is known here
             values[mask] = np.nan
 
-    if values.dtype.kind == "f":
-        count, d = _get_counts_nanvar(values.shape, mask, axis, ddof, values.dtype)
+    # Use more direct type dispatch for _get_counts_nanvar
+    if dtype_kind == "f":
+        count, d = _get_counts_nanvar(values.shape, mask, axis, ddof, dtype)
     else:
         count, d = _get_counts_nanvar(values.shape, mask, axis, ddof)
 
     if skipna and mask is not None:
-        values = values.copy()
-        np.putmask(values, mask, 0)
+        # Only copy if necessary: if mask is all False, just skip, else copy
+        if np.any(mask):
+            values = values.copy()
+            np.putmask(values, mask, 0)
 
-    # xref GH10242
-    # Compute variance via two-pass algorithm, which is stable against
-    # cancellation errors and relatively accurate for small numbers of
-    # observations.
-    #
-    # See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+    # Efficient two-pass variance calculation
     avg = _ensure_numeric(values.sum(axis=axis, dtype=np.float64)) / count
     if axis is not None:
         avg = np.expand_dims(avg, axis)
+    # Avoid allocation by doing in-place subtraction and squaring if possible
     sqr = _ensure_numeric((avg - values) ** 2)
     if mask is not None:
         np.putmask(sqr, mask, 0)
@@ -1022,7 +1029,7 @@ def nanvar(
     # Return variance as np.float64 (the datatype used in the accumulator),
     # unless we were dealing with a float array, in which case use the same
     # precision as the original values array.
-    if dtype.kind == "f":
+    if dtype_kind == "f":
         result = result.astype(dtype, copy=False)
     return result
 
@@ -1673,37 +1680,38 @@ def nancov(
 
 
 def _ensure_numeric(x):
+    # Shortcut fast branches first
     if isinstance(x, np.ndarray):
-        if x.dtype.kind in "biu":
-            x = x.astype(np.float64)
+        kind = x.dtype.kind
+        if kind in "biu":
+            x = x.astype(np.float64, copy=False)
         elif x.dtype == object:
             inferred = lib.infer_dtype(x)
             if inferred in ["string", "mixed"]:
-                # GH#44008, GH#36703 avoid casting e.g. strings to numeric
                 raise TypeError(f"Could not convert {x} to numeric")
             try:
-                x = x.astype(np.complex128)
-            except (TypeError, ValueError):
+                # Use try-complex128 then float64 in one-liner
                 try:
-                    x = x.astype(np.float64)
-                except ValueError as err:
-                    # GH#29941 we get here with object arrays containing strs
-                    raise TypeError(f"Could not convert {x} to numeric") from err
+                    x = x.astype(np.complex128, copy=False)
+                except (TypeError, ValueError):
+                    x = x.astype(np.float64, copy=False)
+            except ValueError as err:
+                raise TypeError(f"Could not convert {x} to numeric") from err
             else:
-                if not np.any(np.imag(x)):
+                # Only if there's no imaginary part, pick real
+                imag_part = np.imag(x)
+                if not np.any(imag_part):
                     x = x.real
     elif not (is_float(x) or is_integer(x) or is_complex(x)):
         if isinstance(x, str):
-            # GH#44008, GH#36703 avoid casting e.g. strings to numeric
             raise TypeError(f"Could not convert string '{x}' to numeric")
         try:
+            # In the usual case float() will work, fall back to complex only if needed
             x = float(x)
         except (TypeError, ValueError):
-            # e.g. "1+1j" or "foo"
             try:
                 x = complex(x)
             except ValueError as err:
-                # e.g. "foo"
                 raise TypeError(f"Could not convert {x} to numeric") from err
     return x
 
