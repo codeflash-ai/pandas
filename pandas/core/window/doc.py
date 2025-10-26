@@ -6,6 +6,26 @@ from textwrap import dedent
 
 from pandas.core.shared_docs import _shared_docs
 
+_DEDENTED_TEMPLATE = dedent(
+    """
+engine : str, default None
+    * ``'cython'`` : Runs the operation through C-extensions from cython.
+    * ``'numba'`` : Runs the operation through JIT compiled code from numba.
+    * ``None`` : Defaults to ``'cython'`` or globally setting ``compute.use_numba``
+
+      .. versionadded:: {version}.0
+
+engine_kwargs : dict, default None
+    * For ``'cython'`` engine, there are no accepted ``engine_kwargs``
+    * For ``'numba'`` engine, the engine can accept ``nopython``, ``nogil``
+      and ``parallel`` dictionary keys. The values must either be ``True`` or
+      ``False``. The default ``engine_kwargs`` for the ``'numba'`` engine is
+      ``{{'nopython': True, 'nogil': False, 'parallel': False}}``
+
+      .. versionadded:: {version}.0\n
+"""
+)
+
 _shared_docs = dict(**_shared_docs)
 
 
@@ -92,26 +112,4 @@ numba_notes = (
 
 
 def window_agg_numba_parameters(version: str = "1.3") -> str:
-    return (
-        dedent(
-            """
-    engine : str, default None
-        * ``'cython'`` : Runs the operation through C-extensions from cython.
-        * ``'numba'`` : Runs the operation through JIT compiled code from numba.
-        * ``None`` : Defaults to ``'cython'`` or globally setting ``compute.use_numba``
-
-          .. versionadded:: {version}.0
-
-    engine_kwargs : dict, default None
-        * For ``'cython'`` engine, there are no accepted ``engine_kwargs``
-        * For ``'numba'`` engine, the engine can accept ``nopython``, ``nogil``
-          and ``parallel`` dictionary keys. The values must either be ``True`` or
-          ``False``. The default ``engine_kwargs`` for the ``'numba'`` engine is
-          ``{{'nopython': True, 'nogil': False, 'parallel': False}}``
-
-          .. versionadded:: {version}.0\n
-    """
-        )
-        .replace("\n", "", 1)
-        .replace("{version}", version)
-    )
+    return _DEDENTED_TEMPLATE.replace("\n", "", 1).replace("{version}", version)
