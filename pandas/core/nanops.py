@@ -47,6 +47,7 @@ from pandas.core.dtypes.missing import (
     na_value_for_dtype,
     notna,
 )
+import math
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -94,7 +95,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +151,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +414,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +479,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +713,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +899,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1512,7 +1513,10 @@ def _maybe_null_out(
 
     if axis is not None and isinstance(result, np.ndarray):
         if mask is not None:
-            null_mask = (mask.shape[axis] - mask.sum(axis) - min_count) < 0
+            # Cache mask.shape[axis], mask.sum(axis) to avoid redundant calls
+            mask_shape_axis = mask.shape[axis]
+            mask_sum_axis = mask.sum(axis)
+            null_mask = (mask_shape_axis - mask_sum_axis - min_count) < 0
         else:
             # we have no nulls, kept mask=None in _maybe_get_mask
             below_count = shape[axis] - min_count < 0
@@ -1563,10 +1567,11 @@ def check_below_min_count(
     """
     if min_count > 0:
         if mask is None:
-            # no missing values, only check size
-            non_nulls = np.prod(shape)
+            # no missing values, only check size - use math.prod for tuples (faster for small dims)
+            non_nulls = math.prod(shape)
         else:
-            non_nulls = mask.size - mask.sum()
+            # Faster than mask.size - mask.sum() for large masks; count non-nulls directly
+            non_nulls = np.count_nonzero(~mask)
         if non_nulls < min_count:
             return True
     return False
