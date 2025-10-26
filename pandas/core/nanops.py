@@ -47,6 +47,7 @@ from pandas.core.dtypes.missing import (
     na_value_for_dtype,
     notna,
 )
+from scipy.stats import kendalltau, spearmanr
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -94,7 +95,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +151,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +414,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +479,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +713,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +899,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1616,14 +1617,12 @@ def get_corr_func(
     method: CorrelationMethod,
 ) -> Callable[[np.ndarray, np.ndarray], float]:
     if method == "kendall":
-        from scipy.stats import kendalltau
 
         def func(a, b):
             return kendalltau(a, b)[0]
 
         return func
     elif method == "spearman":
-        from scipy.stats import spearmanr
 
         def func(a, b):
             return spearmanr(a, b)[0]
