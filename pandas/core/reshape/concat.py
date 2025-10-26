@@ -465,10 +465,15 @@ def _sanitize_mixed_ndim(
 
     current_column = 0
     max_ndim = sample.ndim
+
+    # Cache the constructor to avoid repeated attribute lookups
+    sample_constructor = sample._constructor
+
     for obj in objs:
         ndim = obj.ndim
         if ndim == max_ndim:
-            pass
+            new_objs.append(obj)
+            continue
 
         elif ndim != max_ndim - 1:
             raise ValueError(
@@ -487,11 +492,11 @@ def _sanitize_mixed_ndim(
                     # to have unique names
                     name = current_column
                     current_column += 1
-                obj = sample._constructor(obj, copy=False)
+                obj = sample_constructor(obj, copy=False)
                 if isinstance(obj, ABCDataFrame):
                     obj.columns = range(name, name + 1, 1)
             else:
-                obj = sample._constructor({name: obj}, copy=False)
+                obj = sample_constructor({name: obj}, copy=False)
 
         new_objs.append(obj)
 
