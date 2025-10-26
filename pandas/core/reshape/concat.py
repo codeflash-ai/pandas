@@ -700,25 +700,23 @@ def _get_concat_axis_dataframe(
     verify_integrity: bool,
 ) -> Index:
     """Return result concat axis when concatenating DataFrame objects."""
-    indexes_gen = (x.axes[axis] for x in objs)
+    indexes = [x.axes[axis] for x in objs]
 
     if ignore_index:
-        return default_index(sum(len(i) for i in indexes_gen))
+        return default_index(sum(len(i) for i in indexes))
     else:
-        indexes = list(indexes_gen)
+        if keys is None:
+            if levels is not None:
+                raise ValueError("levels supported only when keys is not None")
+            concat_axis = _concat_indexes(indexes)
+        else:
+            concat_axis = _make_concat_multiindex(indexes, keys, levels, names)
 
-    if keys is None:
-        if levels is not None:
-            raise ValueError("levels supported only when keys is not None")
-        concat_axis = _concat_indexes(indexes)
-    else:
-        concat_axis = _make_concat_multiindex(indexes, keys, levels, names)
+        if verify_integrity and not concat_axis.is_unique:
+            overlap = concat_axis[concat_axis.duplicated()].unique()
+            raise ValueError(f"Indexes have overlapping values: {overlap}")
 
-    if verify_integrity and not concat_axis.is_unique:
-        overlap = concat_axis[concat_axis.duplicated()].unique()
-        raise ValueError(f"Indexes have overlapping values: {overlap}")
-
-    return concat_axis
+        return concat_axis
 
 
 def _clean_keys_and_objs(
@@ -829,6 +827,7 @@ def validate_unique_levels(levels: list[Index]) -> None:
 
 
 def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiIndex:
+    # Optimize checks and factorization logic for common case
     if (levels is None and isinstance(keys[0], tuple)) or (
         levels is not None and len(levels) > 1
     ):
@@ -839,6 +838,7 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiInde
         if levels is None:
             _, levels = factorize_from_iterables(zipped)
         else:
+            # Only call ensure_index once per level
             levels = [ensure_index(x) for x in levels]
             validate_unique_levels(levels)
     else:
@@ -855,28 +855,27 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiInde
     if not all_indexes_same(indexes):
         codes_list = []
 
-        # things are potentially different sizes, so compute the exact codes
-        # for each level and pass those to MultiIndex.from_arrays
+        # Pre-calculate length of indexes once for repeated use
+        idx_lens = [len(idx) for idx in indexes]
 
         for hlevel, level in zip(zipped, levels):
             to_concat = []
+            level_arr = np.asarray(level)
+            # Avoid repeated ensure_index or type conversion inside the loop
             if isinstance(hlevel, Index) and hlevel.equals(level):
-                lens = [len(idx) for idx in indexes]
-                codes_list.append(np.repeat(np.arange(len(hlevel)), lens))
+                codes_list.append(np.repeat(np.arange(len(hlevel)), idx_lens))
             else:
                 for key, index in zip(hlevel, indexes):
-                    # Find matching codes, include matching nan values as equal.
-                    mask = (isna(level) & isna(key)) | (level == key)
+                    mask = (isna(level_arr) & isna(key)) | (level_arr == key)
                     if not mask.any():
                         raise ValueError(f"Key {key} not in level {level}")
-                    i = np.nonzero(mask)[0][0]
-
+                    # Use argmax for first True if guaranteed at least one True from 'if not mask.any()'
+                    i = mask.argmax()
                     to_concat.append(np.repeat(i, len(index)))
-                codes_list.append(np.concatenate(to_concat))
+                codes_list.append(np.concatenate(to_concat, dtype=np.intp))
 
         concat_index = _concat_indexes(indexes)
 
-        # these go at the end
         if isinstance(concat_index, MultiIndex):
             levels.extend(concat_index.levels)
             codes_list.extend(concat_index.codes)
@@ -888,13 +887,11 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiInde
         if len(names) == len(levels):
             names = list(names)
         else:
-            # make sure that all of the passed indices have the same nlevels
-            if not len({idx.nlevels for idx in indexes}) == 1:
+            nlevels_set = {idx.nlevels for idx in indexes}
+            if not len(nlevels_set) == 1:
                 raise AssertionError(
                     "Cannot concat indices that do not have the same number of levels"
                 )
-
-            # also copies
             names = list(names) + list(get_unanimous_names(*indexes))
 
         return MultiIndex(
@@ -905,33 +902,29 @@ def _make_concat_multiindex(indexes, keys, levels=None, names=None) -> MultiInde
     n = len(new_index)
     kpieces = len(indexes)
 
-    # also copies
     new_names = list(names)
     new_levels = list(levels)
 
-    # construct codes
     new_codes = []
-
-    # do something a bit more speedy
 
     for hlevel, level in zip(zipped, levels):
         hlevel_index = ensure_index(hlevel)
         mapped = level.get_indexer(hlevel_index)
-
         mask = mapped == -1
         if mask.any():
             raise ValueError(
                 f"Values not found in passed level: {hlevel_index[mask]!s}"
             )
-
         new_codes.append(np.repeat(mapped, n))
 
     if isinstance(new_index, MultiIndex):
         new_levels.extend(new_index.levels)
+        # np.tile is already vectorized, only outer loop call preserved
         new_codes.extend(np.tile(lab, kpieces) for lab in new_index.codes)
     else:
-        new_levels.append(new_index.unique())
-        single_codes = new_index.unique().get_indexer(new_index)
+        uniqs = new_index.unique()
+        new_levels.append(uniqs)
+        single_codes = uniqs.get_indexer(new_index)
         new_codes.append(np.tile(single_codes, kpieces))
 
     if len(new_names) < len(new_levels):
