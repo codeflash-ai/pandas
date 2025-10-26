@@ -83,7 +83,7 @@ def deprecate(
         if alternative.__doc__.count("\n") < 3:
             raise AssertionError(doc_error_msg)
         empty1, summary, empty2, doc_string = alternative.__doc__.split("\n", 3)
-        if empty1 or empty2 and not summary:
+        if empty1 or (empty2 and not summary):
             raise AssertionError(doc_error_msg)
         wrapper.__doc__ = dedent(
             f"""
@@ -211,7 +211,7 @@ def deprecate_kwarg(
                 kwargs[new_arg_name] = new_arg_value
             return func(*args, **kwargs)
 
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _deprecate_kwarg
 
@@ -362,34 +362,49 @@ def doc(*docstrings: None | str | Callable, **params: object) -> Callable[[F], F
     def decorator(decorated: F) -> F:
         # collecting docstring and docstring templates
         docstring_components: list[str | Callable] = []
-        if decorated.__doc__:
-            docstring_components.append(dedent(decorated.__doc__))
+        decorated_doc = decorated.__doc__
+        if decorated_doc:
+            docstring_components.append(dedent(decorated_doc))
 
+        # Speed: avoid repeated hasattr/isinstance/attribute lookups
+        extend = docstring_components.extend
+        append = docstring_components.append
         for docstring in docstrings:
             if docstring is None:
                 continue
-            if hasattr(docstring, "_docstring_components"):
-                docstring_components.extend(
-                    docstring._docstring_components  # pyright: ignore[reportAttributeAccessIssue]
-                )
-            elif isinstance(docstring, str) or docstring.__doc__:
-                docstring_components.append(docstring)
+            attr = getattr(docstring, "_docstring_components", None)
+            if attr is not None:
+                extend(attr)
+            elif isinstance(docstring, str):
+                append(docstring)
+            else:
+                docstring_doc = getattr(docstring, "__doc__", None)
+                if docstring_doc:
+                    append(docstring)
 
-        params_applied = [
-            component.format(**params)
-            if isinstance(component, str) and len(params) > 0
-            else component
-            for component in docstring_components
-        ]
+        # Precalculate whether string format will be done at all
+        use_format = bool(params)
+        params_applied = []
+        for component in docstring_components:
+            if isinstance(component, str) and use_format:
+                params_applied.append(component.format(**params))
+            else:
+                params_applied.append(component)
 
-        decorated.__doc__ = "".join(
-            [
-                component
-                if isinstance(component, str)
-                else dedent(component.__doc__ or "")
-                for component in params_applied
-            ]
-        )
+        # Avoid repeated dedent calls by only using when needed
+        doc_pieces = []
+        for component in params_applied:
+            if isinstance(component, str):
+                doc_pieces.append(component)
+            else:
+                # dedent only if component.__doc__ exists
+                comp_doc = component.__doc__
+                if comp_doc:
+                    doc_pieces.append(dedent(comp_doc))
+                else:
+                    doc_pieces.append("")
+
+        decorated.__doc__ = "".join(doc_pieces)
 
         # error: "F" has no attribute "_docstring_components"
         decorated._docstring_components = (  # type: ignore[attr-defined]
@@ -497,13 +512,13 @@ def indent(text: str | None, indents: int = 1) -> str:
 
 __all__ = [
     "Appender",
+    "Substitution",
     "cache_readonly",
     "deprecate",
     "deprecate_kwarg",
     "deprecate_nonkeyword_arguments",
     "doc",
     "future_version_msg",
-    "Substitution",
 ]
 
 
