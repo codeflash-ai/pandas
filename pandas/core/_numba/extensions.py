@@ -281,7 +281,8 @@ def maybe_cast_str(x):
 def maybe_cast_str_impl(x):
     """Converts numba UnicodeCharSeq (numpy string scalar) -> unicode type (string).
     Is a no-op for other types."""
-    if isinstance(x, types.UnicodeCharSeq):
+    # Check type directly instead of using isinstance for slightly better performance in numba's context
+    if type(x) is types.UnicodeCharSeq:
         return lambda x: str(x)
     else:
         return lambda x: x
@@ -587,3 +588,10 @@ def iloc_getitem(iloc_indexer, i):
             return iloc_indexer.obj.values[i]
 
         return getitem_impl
+
+
+def maybe_cast_str(x):
+    """Converts numba UnicodeCharSeq (numpy string scalar) -> unicode type (string).
+    Is a no-op for other types."""
+    # This function exists so that @overload knows its signature.
+    # It is never actually run - numba uses only the implementation below.
