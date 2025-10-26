@@ -40,6 +40,7 @@ from pandas.core.indexes.base import Index
 from pandas.core.indexing import _iLocIndexer
 from pandas.core.internals import SingleBlockManager
 from pandas.core.series import Series
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from pandas._typing import Self
@@ -539,7 +540,7 @@ class IlocType(types.Type):
 @typeof_impl.register(_iLocIndexer)
 def typeof_iloc(val, c) -> IlocType:
     objtype = typeof_impl(val.obj, c)
-    return IlocType(objtype)
+    return _cached_IlocType(objtype)
 
 
 @type_callable(_iLocIndexer)
@@ -587,3 +588,13 @@ def iloc_getitem(iloc_indexer, i):
             return iloc_indexer.obj.values[i]
 
         return getitem_impl
+
+
+# Cache IlocType object construction to avoid repeated expensive calls
+# Assumption based on typical design: IlocType is deterministic and stateless for the given objtype
+# The optimization trades memory for speed when there are repeated calls with the same objtype
+
+
+@lru_cache(maxsize=128)
+def _cached_IlocType(objtype):
+    return IlocType(objtype)
