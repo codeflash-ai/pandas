@@ -116,9 +116,11 @@ def next_workday(dt: datetime) -> datetime:
     returns next workday used for observances
     """
     dt += timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
-        dt += timedelta(days=1)
+    weekday = dt.weekday()
+    if weekday > 4:
+        # Calculate days to add to reach next Monday (weekday 0)
+        days_to_add = 7 - weekday
+        dt += timedelta(days=days_to_add)
     return dt
 
 
@@ -636,12 +638,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +656,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
