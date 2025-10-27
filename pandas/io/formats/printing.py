@@ -336,8 +336,8 @@ def format_object_summary(
 
     if indent_for_name:
         name_len = len(name)
-        space1 = f'\n{(" " * (name_len + 1))}'
-        space2 = f'\n{(" " * (name_len + 2))}'
+        space1 = f"\n{(' ' * (name_len + 1))}"
+        space2 = f"\n{(' ' * (name_len + 2))}"
     else:
         space1 = "\n"
         space2 = "\n "  # space for the opening '['
@@ -492,18 +492,20 @@ def _justify(
 
     # For each position for the sequences in ``combined``,
     # find the length of the largest string.
-    max_length = [0] * len(combined[0])
-    for inner_seq in combined:
-        length = [len(item) for item in inner_seq]
-        max_length = [max(x, y) for x, y in zip(max_length, length)]
+    num_cols = len(combined[0])
+    # Transpose combined for column-wise processing
+    max_length = [max(map(len, col)) for col in zip(*combined)]
 
     # justify each item in each list-like in head and tail using max_length
-    head_tuples = [
-        tuple(x.rjust(max_len) for x, max_len in zip(seq, max_length)) for seq in head
-    ]
-    tail_tuples = [
-        tuple(x.rjust(max_len) for x, max_len in zip(seq, max_length)) for seq in tail
-    ]
+    # Avoid repeated zip by extracting to local
+    def justify_block(block: list[Sequence[str]]) -> list[tuple[str, ...]]:
+        return [
+            tuple(x.rjust(max_len) for x, max_len in zip(seq, max_length))
+            for seq in block
+        ]
+
+    head_tuples = justify_block(head)
+    tail_tuples = justify_block(tail)
     return head_tuples, tail_tuples
 
 
