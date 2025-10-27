@@ -372,14 +372,20 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         copy: bool | None = None,
     ) -> None:
         allow_mgr = False
+        mgr_type = isinstance(data, SingleBlockManager)
+        extension_type = isinstance(data, ExtensionArray)
+        array_type = isinstance(data, np.ndarray)
+        series_type = isinstance(data, Series)
+        index_type = isinstance(data, Index)
+        mapping_type = isinstance(data, Mapping)
+
         if (
-            isinstance(data, SingleBlockManager)
+            mgr_type
             and index is None
             and dtype is None
             and (copy is False or copy is None)
         ):
             if not allow_mgr:
-                # GH#52419
                 warnings.warn(
                     f"Passing a {type(data).__name__} to {type(self).__name__} "
                     "is deprecated and will raise in a future version. "
@@ -388,21 +394,19 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
                     stacklevel=2,
                 )
             data = data.copy(deep=False)
-            # GH#33357 called with just the SingleBlockManager
             NDFrame.__init__(self, data)
             self.name = name
             return
 
-        if isinstance(data, (ExtensionArray, np.ndarray)):
+        if extension_type or array_type:
             if copy is not False:
                 if dtype is None or astype_is_view(data.dtype, pandas_dtype(dtype)):
                     data = data.copy()
         if copy is None:
             copy = False
 
-        if isinstance(data, SingleBlockManager) and not copy:
+        if mgr_type and not copy:
             data = data.copy(deep=False)
-
             if not allow_mgr:
                 warnings.warn(
                     f"Passing a {type(data).__name__} to {type(self).__name__} "
@@ -413,10 +417,8 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
                 )
 
         name = ibase.maybe_extract_name(name, data, type(self))
-
         if index is not None:
             index = ensure_index(index)
-
         if dtype is not None:
             dtype = self._validate_dtype(dtype)
 
@@ -433,22 +435,18 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
             )
 
         refs = None
-        if isinstance(data, Index):
+        if index_type:
             if dtype is not None:
                 data = data.astype(dtype)
-
             refs = data._references
             copy = False
-
-        elif isinstance(data, np.ndarray):
+        elif array_type:
             if len(data.dtype):
-                # GH#13296 we are dealing with a compound dtype, which
-                #  should be treated as 2D
                 raise ValueError(
                     "Cannot construct a Series from an ndarray with "
                     "compound dtype.  Use DataFrame instead."
                 )
-        elif isinstance(data, Series):
+        elif series_type:
             if index is None:
                 index = data.index
                 data = data._mgr.copy(deep=False)
@@ -456,22 +454,19 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
                 data = data.reindex(index)
                 copy = False
                 data = data._mgr
-        elif isinstance(data, Mapping):
+        elif mapping_type:
             data, index = self._init_dict(data, index, dtype)
             dtype = None
             copy = False
-        elif isinstance(data, SingleBlockManager):
+        elif mgr_type:
             if index is None:
                 index = data.index
             elif not data.index.equals(index) or copy:
-                # GH#19275 SingleBlockManager input should only be called
-                # internally
                 raise AssertionError(
                     "Cannot pass both SingleBlockManager "
                     "`data` argument and a different "
                     "`index` argument. `copy` must be False."
                 )
-
             if not allow_mgr:
                 warnings.warn(
                     f"Passing a {type(data).__name__} to {type(self).__name__} "
@@ -481,13 +476,11 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
                     stacklevel=2,
                 )
                 allow_mgr = True
-
-        elif isinstance(data, ExtensionArray):
+        elif extension_type:
             pass
         else:
             data = com.maybe_iterable_to_list(data)
             if is_list_like(data) and not len(data) and dtype is None:
-                # GH 29405: Pre-2.0, this defaulted to float.
                 dtype = np.dtype(object)
 
         if index is None:
@@ -497,8 +490,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         elif is_list_like(data):
             com.require_length_match(data, index)
 
-        # create/copy the manager
-        if isinstance(data, SingleBlockManager):
+        if mgr_type:
             if dtype is not None:
                 data = data.astype(dtype=dtype, errors="ignore")
             elif copy:
@@ -2878,7 +2870,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         >>> s.autocorr()
         nan
         """
-        return self.corr(cast(Series, self.shift(lag)))
+        return self.corr(cast("Series", self.shift(lag)))
 
     def dot(self, other: AnyArrayLike | DataFrame) -> Series | np.ndarray:
         """
@@ -3547,7 +3539,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         self._get_axis_number(axis)
 
         if is_list_like(ascending):
-            ascending = cast(Sequence[bool], ascending)
+            ascending = cast("Sequence[bool]", ascending)
             if len(ascending) != 1:
                 raise ValueError(
                     f"Length of ascending ({len(ascending)}) must be 1 for Series"
@@ -3561,7 +3553,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
 
         # GH 35922. Make sorting stable by leveraging nargsort
         if key:
-            values_to_sort = cast(Series, ensure_key_mapped(self, key))._values
+            values_to_sort = cast("Series", ensure_key_mapped(self, key))._values
         else:
             values_to_sort = self._values
         sorted_index = nargsort(values_to_sort, kind, bool(ascending), na_position)
@@ -5942,7 +5934,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
 
         name = ops.get_op_result_name(self, other)
         out = this._construct_result(result, name)
-        return cast(Series, out)
+        return cast("Series", out)
 
     def _construct_result(
         self, result: ArrayLike | tuple[ArrayLike, ArrayLike], name: Hashable
