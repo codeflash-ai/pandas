@@ -24,9 +24,19 @@ from pandas._config import get_option
 from pandas.core.dtypes.inference import is_sequence
 
 from pandas.io.formats.console import get_console_size
+from IPython import get_ipython
 
 if TYPE_CHECKING:
     from pandas._typing import ListLike
+
+get_ipython = None
+
+BaseFormatter = None
+
+ObjectName = None
+
+TableSchemaFormatter = None
+
 EscapeChars = Union[Mapping[str, str], Iterable[str]]
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
@@ -256,9 +266,11 @@ def enable_data_resource_formatter(enable: bool) -> None:
     if "IPython" not in sys.modules:
         # definitely not in IPython
         return
-    from IPython import get_ipython
 
-    # error: Call to untyped function "get_ipython" in typed context
+    # (Cached and top-level) get_ipython may be None if import failed above
+    if get_ipython is None:
+        # still not in IPython
+        return
     ip = get_ipython()  # type: ignore[no-untyped-call]
     if ip is None:
         # still not in IPython
@@ -270,14 +282,16 @@ def enable_data_resource_formatter(enable: bool) -> None:
     if enable:
         if mimetype not in formatters:
             # define tableschema formatter
-            from IPython.core.formatters import BaseFormatter
-            from traitlets import ObjectName
+            # (TableSchemaFormatter defined at module scope)
+            if TableSchemaFormatter is None:
+                # Defensive path: Occurs only if previous import failed
+                from IPython.core.formatters import BaseFormatter
+                from traitlets import ObjectName
 
-            class TableSchemaFormatter(BaseFormatter):
-                print_method = ObjectName("_repr_data_resource_")
-                _return_type = (dict,)
+                class TableSchemaFormatter(BaseFormatter):
+                    print_method = ObjectName("_repr_data_resource_")
+                    _return_type = (dict,)
 
-            # register it:
             formatters[mimetype] = TableSchemaFormatter()
         # enable it if it's been disabled:
         formatters[mimetype].enabled = True
@@ -336,8 +350,8 @@ def format_object_summary(
 
     if indent_for_name:
         name_len = len(name)
-        space1 = f'\n{(" " * (name_len + 1))}'
-        space2 = f'\n{(" " * (name_len + 2))}'
+        space1 = f"\n{(' ' * (name_len + 1))}"
+        space2 = f"\n{(' ' * (name_len + 2))}"
     else:
         space1 = "\n"
         space2 = "\n "  # space for the opening '['
