@@ -336,8 +336,8 @@ def format_object_summary(
 
     if indent_for_name:
         name_len = len(name)
-        space1 = f'\n{(" " * (name_len + 1))}'
-        space2 = f'\n{(" " * (name_len + 2))}'
+        space1 = f"\n{(' ' * (name_len + 1))}"
+        space2 = f"\n{(' ' * (name_len + 2))}"
     else:
         space1 = "\n"
         space2 = "\n "  # space for the opening '['
@@ -526,11 +526,14 @@ class _TextAdjustment:
         Perform ljust, center, rjust against string or list-like
         """
         if mode == "left":
-            return [x.ljust(max_len) for x in texts]
+            ljust = str.ljust
+            return [ljust(x, max_len) for x in texts]
         elif mode == "center":
-            return [x.center(max_len) for x in texts]
+            center = str.center
+            return [center(x, max_len) for x in texts]
         else:
-            return [x.rjust(max_len) for x in texts]
+            rjust = str.rjust
+            return [rjust(x, max_len) for x in texts]
 
     def adjoin(self, space: int, *lists: Any, **kwargs: Any) -> str:
         return adjoin(space, *lists, strlen=self.len, justfunc=self.justify, **kwargs)
