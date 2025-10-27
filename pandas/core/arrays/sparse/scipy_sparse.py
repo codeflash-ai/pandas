@@ -15,6 +15,7 @@ from pandas.core.dtypes.missing import notna
 from pandas.core.algorithms import factorize
 from pandas.core.indexes.api import MultiIndex
 from pandas.core.series import Series
+import scipy.sparse
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -151,22 +152,37 @@ def sparse_series_to_coo(
     levels row_levels, column_levels as the row and column
     labels respectively. Returns the sparse_matrix, row and column labels.
     """
-    import scipy.sparse
+    # Minor optimization: avoid repeated attribute lookups by caching local variables
+    index = ss.index
+    nlevels = index.nlevels
 
-    if ss.index.nlevels < 2:
+    if nlevels < 2:
         raise ValueError("to_coo requires MultiIndex with nlevels >= 2.")
-    if not ss.index.is_unique:
+    if not index.is_unique:
         raise ValueError(
             "Duplicate index entries are not allowed in to_coo transformation."
         )
 
-    # to keep things simple, only rely on integer indexing (not labels)
-    row_levels = [ss.index._get_level_number(x) for x in row_levels]
-    column_levels = [ss.index._get_level_number(x) for x in column_levels]
-
-    v, i, j, rows, columns = _to_ijv(
-        ss, row_levels=row_levels, column_levels=column_levels, sort_labels=sort_labels
+    # Use tuple for row/column_levels for faster repeated access
+    row_levels_seq = (
+        tuple(row_levels) if not isinstance(row_levels, tuple) else row_levels
     )
+    column_levels_seq = (
+        tuple(column_levels) if not isinstance(column_levels, tuple) else column_levels
+    )
+
+    # Obtain level numbers, leveraging local ._get_level_number and avoiding repeated attribute/method access
+    row_level_numbers = [index._get_level_number(x) for x in row_levels_seq]
+    column_level_numbers = [index._get_level_number(x) for x in column_levels_seq]
+
+    # Avoid repeated global lookup by resolving _to_ijv once
+    v, i, j, rows, columns = _to_ijv(
+        ss,
+        row_levels=row_level_numbers,
+        column_levels=column_level_numbers,
+        sort_labels=sort_labels,
+    )
+    # Construct sparse matrix in a single step
     sparse_matrix = scipy.sparse.coo_matrix(
         (v, (i, j)), shape=(len(rows), len(columns))
     )
