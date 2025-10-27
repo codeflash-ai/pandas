@@ -336,8 +336,8 @@ def format_object_summary(
 
     if indent_for_name:
         name_len = len(name)
-        space1 = f'\n{(" " * (name_len + 1))}'
-        space2 = f'\n{(" " * (name_len + 2))}'
+        space1 = f"\n{(' ' * (name_len + 1))}"
+        space2 = f"\n{(' ' * (name_len + 2))}"
     else:
         space1 = "\n"
         space2 = "\n "  # space for the opening '['
@@ -556,9 +556,21 @@ class _EastAsianTextAdjustment(_TextAdjustment):
         if not isinstance(text, str):
             return len(text)
 
-        return sum(
-            self._EAW_MAP.get(east_asian_width(c), self.ambiguous_width) for c in text
-        )
+        if text.isascii():
+            return len(text)
+
+        eaw = east_asian_width
+        lookup = self._EAW_MAP
+        ambiguous_width = self.ambiguous_width
+
+        total = 0
+        for c in text:
+            code = eaw(c)
+            v = lookup.get(code)
+            if v is None:
+                v = ambiguous_width
+            total += v
+        return total
 
     def justify(
         self, texts: Iterable[str], max_len: int, mode: str = "right"
