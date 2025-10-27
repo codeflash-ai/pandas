@@ -13,39 +13,35 @@ def get_console_size() -> tuple[int | None, int | None]:
 
     Returns (None,None) in non-interactive session.
     """
+    # Only import if needed
     from pandas import get_option
 
+    # Fetch options once; check for None (auto-detection)
     display_width = get_option("display.width")
     display_height = get_option("display.max_rows")
 
-    # Consider
-    # interactive shell terminal, can detect term size
-    # interactive non-shell terminal (ipnb/ipqtconsole), cannot detect term
-    # size non-interactive script, should disregard term size
+    # Localize auto-detection decisions
+    auto_width = display_width is None
+    auto_height = display_height is None
 
-    # in addition
-    # width,height have default values, but setting to 'None' signals
-    # should use Auto-Detection, But only in interactive shell-terminal.
-    # Simple. yeah.
-
-    if in_interactive_session():
+    # decide if need to auto-detect
+    if (auto_width or auto_height) and in_interactive_session():
         if in_ipython_frontend():
-            # sane defaults for interactive non-shell terminal
-            # match default for width,height in config_init
+            # Sane defaults for interactive non-shell terminal
             from pandas._config.config import get_default_val
 
             terminal_width = get_default_val("display.width")
             terminal_height = get_default_val("display.max_rows")
         else:
-            # pure terminal
             terminal_width, terminal_height = get_terminal_size()
+        width = display_width if not auto_width else terminal_width
+        height = display_height if not auto_height else terminal_height
     else:
-        terminal_width, terminal_height = None, None
+        # Non-interactive or direct values just use config or None
+        width = display_width
+        height = display_height
 
-    # Note if the User sets width/Height to None (auto-detection)
-    # and we're in a script (non-inter), this will return (None,None)
-    # caller needs to deal.
-    return display_width or terminal_width, display_height or terminal_height
+    return width, height
 
 
 # ----------------------------------------------------------------------

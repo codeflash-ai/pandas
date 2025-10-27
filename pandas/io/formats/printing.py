@@ -109,18 +109,22 @@ def _pprint_seq(
 
     bounds length of printed sequence, depending on options
     """
+    # Avoid multiple str/type checks
     if isinstance(seq, set):
         fmt = "{{{body}}}"
     else:
         fmt = "[{body}]" if hasattr(seq, "__setitem__") else "({body})"
 
+    # Only query max_seq_items option if needed, once
     if max_seq_items is False:
         max_items = None
+    elif max_seq_items is not None:
+        max_items = max_seq_items
     else:
-        max_items = max_seq_items or get_option("max_seq_items") or len(seq)
+        val = get_option("max_seq_items")
+        max_items = val if val is not None else len(seq)
 
     s = iter(seq)
-    # handle sets, no slicing
     r = []
     max_items_reached = False
     for i, item in enumerate(s):
@@ -328,39 +332,43 @@ def format_object_summary(
     -------
     summary string
     """
+    # Cache expensive option queries up front
     display_width, _ = get_console_size()
-    if display_width is None:
-        display_width = get_option("display.width") or 80
+    display_width = (
+        display_width
+        if display_width is not None
+        else (get_option("display.width") or 80)
+    )
     if name is None:
         name = type(obj).__name__
 
+    # Precompute indentation strings
     if indent_for_name:
         name_len = len(name)
-        space1 = f'\n{(" " * (name_len + 1))}'
-        space2 = f'\n{(" " * (name_len + 2))}'
+        space1 = f"\n{(' ' * (name_len + 1))}"
+        space2 = f"\n{(' ' * (name_len + 2))}"
     else:
         space1 = "\n"
-        space2 = "\n "  # space for the opening '['
+        space2 = "\n "
 
     n = len(obj)
-    if line_break_each_value:
-        # If we want to vertically align on each value of obj, we need to
-        # separate values by a line break and indent the values
-        sep = ",\n " + " " * len(name)
-    else:
-        sep = ","
-    max_seq_items = get_option("display.max_seq_items") or n
+    sep = ",\n " + " " * len(name) if line_break_each_value else ","
+    # Only query max_seq_items once
+    max_seq_items = get_option("display.max_seq_items")
+    max_seq_items = max_seq_items if max_seq_items is not None else n
 
-    # are we a truncated display
     is_truncated = n > max_seq_items
 
-    # adj can optionally handle unicode eastern asian width
-    adj = get_adjustment()
+    # adj only needed if is_justify
+    adj = get_adjustment() if is_justify else None
 
     def _extend_line(
         s: str, line: str, value: str, display_width: int, next_line_prefix: str
     ) -> tuple[str, str]:
-        if adj.len(line.rstrip()) + adj.len(value.rstrip()) >= display_width:
+        # Only use adj if is_justify
+        alen = adj.len(line.rstrip()) if adj is not None else len(line.rstrip())
+        vlen = adj.len(value.rstrip()) if adj is not None else len(value.rstrip())
+        if alen + vlen >= display_width:
             s += line.rstrip()
             line = next_line_prefix
         line += value
@@ -389,36 +397,26 @@ def format_object_summary(
             head = []
             tail = [formatter(x) for x in obj[-1:]]
         elif n > max_seq_items:
-            n = min(max_seq_items // 2, 10)
-            head = [formatter(x) for x in obj[:n]]
-            tail = [formatter(x) for x in obj[-n:]]
+            sliced_n = min(max_seq_items // 2, 10)
+            head = [formatter(x) for x in obj[:sliced_n]]
+            tail = [formatter(x) for x in obj[-sliced_n:]]
         else:
             head = []
             tail = [formatter(x) for x in obj]
 
-        # adjust all values to max length if needed
+        # Only justify if needed
         if is_justify:
             if line_break_each_value:
-                # Justify each string in the values of head and tail, so the
-                # strings will right align when head and tail are stacked
-                # vertically.
                 head, tail = _justify(head, tail)
             elif is_truncated or not (
                 len(", ".join(head)) < display_width
                 and len(", ".join(tail)) < display_width
             ):
-                # Each string in head and tail should align with each other
                 max_length = max(best_len(head), best_len(tail))
                 head = [x.rjust(max_length) for x in head]
                 tail = [x.rjust(max_length) for x in tail]
-            # If we are not truncated and we are only a single
-            # line, then don't justify
 
         if line_break_each_value:
-            # Now head and tail are of type List[Tuple[str]]. Below we
-            # convert them into List[str], so there will be one string per
-            # value. Also truncate items horizontally if wider than
-            # max_space
             max_space = display_width - len(space2)
             value = tail[0]
             max_items = 1
@@ -428,7 +426,11 @@ def format_object_summary(
                     max_items = num_items
                     break
             head = [_pprint_seq(x, max_seq_items=max_items) for x in head]
-            tail = [_pprint_seq(x, max_seq_items=max_items) for x in tail]
+            # tail render can be expensive, batch-call
+            tail_pp = []
+            for x in tail:
+                tail_pp.append(_pprint_seq(x, max_seq_items=max_items))
+            tail = tail_pp
 
         summary = ""
         line = space2
@@ -438,7 +440,6 @@ def format_object_summary(
             summary, line = _extend_line(summary, line, word, display_width, space2)
 
         if is_truncated:
-            # remove trailing space of last line
             summary += line.rstrip() + space2 + "..."
             line = space2
 
@@ -446,21 +447,17 @@ def format_object_summary(
             word = tail_item + sep + " "
             summary, line = _extend_line(summary, line, word, display_width, space2)
 
-        # last value: no sep added + 1 space of width used for trailing ','
         summary, line = _extend_line(summary, line, tail[-1], display_width - 2, space2)
         summary += line
 
-        # right now close is either '' or ', '
-        # Now we want to include the ']', but not the maybe space.
         close = "]" + close.rstrip(" ")
         summary += close
 
-        if len(summary) > (display_width) or line_break_each_value:
+        if len(summary) > display_width or line_break_each_value:
             summary += space1
-        else:  # one row
+        else:
             summary += " "
 
-        # remove initial space
         summary = "[" + summary[len(space2) :]
 
     return summary
@@ -489,20 +486,16 @@ def _justify(
     ([('  a', '   b')], [('abc', 'abcd')])
     """
     combined = head + tail
-
-    # For each position for the sequences in ``combined``,
-    # find the length of the largest string.
-    max_length = [0] * len(combined[0])
-    for inner_seq in combined:
-        length = [len(item) for item in inner_seq]
-        max_length = [max(x, y) for x, y in zip(max_length, length)]
-
-    # justify each item in each list-like in head and tail using max_length
+    # Efficient calculation of max column widths
+    if not combined or not combined[0]:
+        return head, tail
+    widths = [max(len(item) for item in col) for col in zip(*combined)]
+    # Use tuple for rjust for both head and tail
     head_tuples = [
-        tuple(x.rjust(max_len) for x, max_len in zip(seq, max_length)) for seq in head
+        tuple(x.rjust(width) for x, width in zip(seq, widths)) for seq in head
     ]
     tail_tuples = [
-        tuple(x.rjust(max_len) for x, max_len in zip(seq, max_length)) for seq in tail
+        tuple(x.rjust(width) for x, width in zip(seq, widths)) for seq in tail
     ]
     return head_tuples, tail_tuples
 
