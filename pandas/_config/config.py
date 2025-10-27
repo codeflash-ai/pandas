@@ -62,6 +62,7 @@ import warnings
 
 from pandas._typing import F
 from pandas.util._exceptions import find_stack_level
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -180,7 +181,7 @@ def get_option(pat: str) -> Any:
     key = _get_single_key(pat)
 
     # walk the nested dict
-    root, k = _get_root(key)
+    root, k = _get_root_cached(key)
     return root[k]
 
 
@@ -756,7 +757,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
@@ -889,3 +890,12 @@ def is_callable(obj: object) -> bool:
     if not callable(obj):
         raise ValueError("Value must be a callable")
     return True
+
+
+@lru_cache(maxsize=512)
+def _get_root_cached(key: str) -> tuple[dict[str, Any], str]:
+    path = key.split(".")
+    cursor = _global_config
+    for p in path[:-1]:
+        cursor = cursor[p]
+    return cursor, path[-1]
