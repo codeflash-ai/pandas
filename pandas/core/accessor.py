@@ -222,10 +222,11 @@ class Accessor:
         self._accessor = accessor
 
     def __get__(self, obj, cls):
+        accessor = self._accessor
         if obj is None:
             # we're accessing the attribute of the class, i.e., Dataset.geo
-            return self._accessor
-        return self._accessor(obj)
+            return accessor
+        return accessor(obj)
 
 
 # Alias kept for downstream libraries
