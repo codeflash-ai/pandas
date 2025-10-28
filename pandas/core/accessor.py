@@ -325,9 +325,19 @@ dtype: int64"""
 
 @doc(_register_accessor, klass="DataFrame", examples=_register_df_examples)
 def register_dataframe_accessor(name: str) -> Callable[[TypeT], TypeT]:
-    from pandas import DataFrame
+    # Avoid repeated importation using global import of DataFrame, if possible
+    # Since pandas import is top-level elsewhere, we can cache DataFrame locally for much faster repeated decorator calls
+    # This will significantly reduce import overhead per call (see profiling)
+    # This assumes that the global DataFrame import is always available after first use
+    # If not imported yet, import pandas.DataFrame once and reuse
+    try:
+        _cached_DataFrame = register_dataframe_accessor._cached_DataFrame
+    except AttributeError:
+        from pandas import DataFrame as _DataFrame
 
-    return _register_accessor(name, DataFrame)
+        register_dataframe_accessor._cached_DataFrame = _DataFrame
+        _cached_DataFrame = _DataFrame
+    return _register_accessor(name, _cached_DataFrame)
 
 
 _register_series_examples = """
