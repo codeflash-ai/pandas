@@ -101,46 +101,65 @@ class PandasDelegate:
             False skips the missing accessor.
         """
 
-        def _create_delegator_property(name: str):
-            def _getter(self):
-                return self._delegate_property_get(name)
+        # Cache accessor mapping results to avoid recomputation in the loop
+        mapped_names = [accessor_mapping(name) for name in accessors]
 
-            def _setter(self, new_values):
-                return self._delegate_property_set(name, new_values)
+        # Pre-fetch for getattr and hasattr to local variables for faster access
+        delegate_getattr = getattr
+        cls_hasattr = hasattr
+        cls_setattr = setattr
 
-            _getter.__name__ = name
-            _setter.__name__ = name
+        # Pre-resolve functors to avoid lookup per-item
+        def _create_delegator_property(attr: str, mapped_attr: str):
+            delegate_attr = delegate_getattr(delegate, mapped_attr)
+            doc = delegate_attr.__doc__
 
+            # Bind name in the closure to eliminate python late-binding perf hit
+            def _getter(self, _attr=attr):
+                return self._delegate_property_get(_attr)
+
+            def _setter(self, new_values, _attr=attr):
+                return self._delegate_property_set(_attr, new_values)
+
+            _getter.__name__ = attr
+            _setter.__name__ = attr
             return property(
                 fget=_getter,
                 fset=_setter,
-                doc=getattr(delegate, accessor_mapping(name)).__doc__,
+                doc=doc,
             )
 
-        def _create_delegator_method(name: str):
-            method = getattr(delegate, accessor_mapping(name))
+        def _create_delegator_method(attr: str, mapped_attr: str):
+            method = delegate_getattr(delegate, mapped_attr)
 
             @functools.wraps(method)
             def f(self, *args, **kwargs):
-                return self._delegate_method(name, *args, **kwargs)
+                # Use original name in method call
+                return self._delegate_method(attr, *args, **kwargs)
 
             return f
 
-        for name in accessors:
-            if (
-                not raise_on_missing
-                and getattr(delegate, accessor_mapping(name), None) is None
-            ):
+        # Store locally for faster access
+        is_property = typ == "property"
+
+        for name, mapped in zip(accessors, mapped_names):
+            delegate_member = delegate_getattr(delegate, mapped, None)
+            if not raise_on_missing and delegate_member is None:
+                continue
+            if raise_on_missing and delegate_member is None:
+                raise AttributeError(
+                    f"'{type(delegate).__name__}' object has no attribute '{mapped}'"
+                )
+
+            # Don't overwrite existing methods/properties
+            if not overwrite and cls_hasattr(cls, name):
                 continue
 
-            if typ == "property":
-                f = _create_delegator_property(name)
+            if is_property:
+                f = _create_delegator_property(name, mapped)
             else:
-                f = _create_delegator_method(name)
-
-            # don't overwrite existing methods/properties
-            if overwrite or not hasattr(cls, name):
-                setattr(cls, name, f)
+                f = _create_delegator_method(name, mapped)
+            cls_setattr(cls, name, f)
 
 
 def delegate_names(
