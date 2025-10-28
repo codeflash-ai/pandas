@@ -307,7 +307,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
@@ -551,11 +551,20 @@ def convert_to_list_like(
     Convert list-like or scalar input to list-like. List, numpy and pandas array-like
     inputs are returned unmodified whereas others are converted to list.
     """
-    if isinstance(values, (list, np.ndarray, ABCIndex, ABCSeries, ABCExtensionArray)):
+    # Check most common types first for faster path
+    if type(values) is list or type(values) is np.ndarray:
         return values
-    elif isinstance(values, abc.Iterable) and not isinstance(values, str):
+    # Check pandas types using type() instead of isinstance for slight speedup
+    typ = type(values)
+    if typ is ABCIndex or typ is ABCSeries or typ is ABCExtensionArray:
+        return values
+    # Avoid isinstance with tuple of classes; check str first for efficiency
+    if isinstance(values, str):
+        return [values]
+    # Check for iterables next
+    if isinstance(values, Iterable):
         return list(values)
-
+    # Scalar value fallback
     return [values]
 
 
