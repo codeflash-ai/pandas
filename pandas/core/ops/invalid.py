@@ -69,9 +69,12 @@ def make_invalid_op(name: str) -> Callable[..., NoReturn]:
     invalid_op : function
     """
 
+    # Avoid re-accessing type(self) and attribute lookup by precalculating closure values
     def invalid_op(self: object, other: object = None) -> NoReturn:
-        typ = type(self).__name__
-        raise TypeError(f"cannot perform {name} with this index type: {typ}")
+        # Fast local access to type name via __class__ avoid globals lookup for 'type'
+        raise TypeError(
+            f"cannot perform {name} with this index type: {self.__class__.__name__}"
+        )
 
     invalid_op.__name__ = name
     return invalid_op
