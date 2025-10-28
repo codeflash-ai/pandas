@@ -45,7 +45,11 @@ class ArrowPeriodType(pyarrow.ExtensionType):
             return NotImplemented
 
     def __ne__(self, other) -> bool:
-        return not self == other
+        # Fast path: avoid creating NotImplemented and unnecessary __eq__ indirection
+        # Using direct attribute and type checks for efficiency
+        if type(self) is type(other):
+            return self._freq != other._freq
+        return True
 
     def __hash__(self) -> int:
         return hash((str(self), self.freq))
