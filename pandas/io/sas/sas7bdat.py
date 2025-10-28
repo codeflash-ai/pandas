@@ -78,14 +78,20 @@ def _convert_datetimes(sas_datetimes: pd.Series, unit: str) -> pd.Series:
     """
     td = (_sas_origin - _unix_origin).as_unit("s")
     if unit == "s":
+        # Use numpy view and arithmetic directly, avoid unnecessary temporaries
         millis = cast_from_unit_vectorized(
             sas_datetimes._values, unit="s", out_unit="ms"
         )
-        dt64ms = millis.view("M8[ms]") + td
+        dt64ms = millis.view("M8[ms]")
+        # Add td after conversion to M8[ms], minimizing temporaries
+        dt64ms = dt64ms + td
         return pd.Series(dt64ms, index=sas_datetimes.index, copy=False)
     else:
-        vals = np.array(sas_datetimes, dtype="M8[D]") + td
-        return pd.Series(vals, dtype="M8[s]", index=sas_datetimes.index, copy=False)
+        # Convert to M8[D] dtype, then cast to M8[s] in one step for efficiency
+        vals = np.asarray(sas_datetimes, dtype="M8[D]") + td
+        # Use astype to convert dtype with copy=False (no temporaries if possible)
+        vals = vals.astype("M8[s]", copy=False)
+        return pd.Series(vals, index=sas_datetimes.index, copy=False)
 
 
 class _Column:
