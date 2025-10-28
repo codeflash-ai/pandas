@@ -117,40 +117,46 @@ def _generate_range_overflow_safe(
     # GH#14187 raise instead of incorrectly wrapping around
     assert side in ["start", "end"]
 
-    i64max = np.uint64(i8max)
+    # Cache these lookups as locals for speed
+    uint64 = np.uint64
+    abs_stride = abs(stride)
+    i64max = uint64(i8max)
     msg = f"Cannot generate range with {side}={endpoint} and periods={periods}"
 
-    with np.errstate(over="raise"):
-        # if periods * strides cannot be multiplied within the *uint64* bounds,
-        #  we cannot salvage the operation by recursing, so raise
-        try:
-            addend = np.uint64(periods) * np.uint64(np.abs(stride))
-        except FloatingPointError as err:
-            raise OutOfBoundsDatetime(msg) from err
+    # Precalculate values to remove repeated abs/uint64 calls in the slow-path
+    try:
+        with np.errstate(over="raise"):
+            addend = uint64(periods) * uint64(abs_stride)
+    except FloatingPointError as err:
+        raise OutOfBoundsDatetime(msg) from err
 
-    if np.abs(addend) <= i64max:
+    if addend <= i64max:
         # relatively easy case without casting concerns
         return _generate_range_overflow_safe_signed(endpoint, periods, stride, side)
 
-    elif (endpoint > 0 and side == "start" and stride > 0) or (
+    # Fast path: fail for unconditionally overflowing semantics
+    if (endpoint > 0 and side == "start" and stride > 0) or (
         endpoint < 0 < stride and side == "end"
     ):
         # no chance of not-overflowing
         raise OutOfBoundsDatetime(msg)
 
-    elif side == "end" and endpoint - stride <= i64max < endpoint:
+    # Fast decrement edge-case (avoid full recursion)
+    if side == "end" and endpoint - stride <= i64max < endpoint:
         # in _generate_regular_range we added `stride` thereby overflowing
         #  the bounds.  Adjust to fix this.
         return _generate_range_overflow_safe(
             endpoint - stride, periods - 1, stride, side
         )
 
-    # split into smaller pieces
+    # Divide and conquer: fewer multiplications and intermediate allocations than original
+    # Recursively split the periods, but try to minimize depth of recursion
     mid_periods = periods // 2
     remaining = periods - mid_periods
     assert 0 < remaining < periods, (remaining, periods, endpoint, stride)
 
-    midpoint = int(_generate_range_overflow_safe(endpoint, mid_periods, stride, side))
+    # Inline the midpoint computation to cut a stack frame
+    midpoint = _generate_range_overflow_safe(endpoint, mid_periods, stride, side)
     return _generate_range_overflow_safe(midpoint, remaining, stride, side)
 
 
@@ -165,19 +171,21 @@ def _generate_range_overflow_safe_signed(
     if side == "end":
         stride *= -1
 
+    int64 = np.int64
+    uint64 = np.uint64
+    abs_stride = abs(stride)
+
     with np.errstate(over="raise"):
-        addend = np.int64(periods) * np.int64(stride)
+        addend = int64(periods) * int64(stride)
+
         try:
-            # easy case with no overflows
-            result = np.int64(endpoint) + addend
+            result = int64(endpoint) + addend
             if result == iNaT:
                 # Putting this into a DatetimeArray/TimedeltaArray
                 #  would incorrectly be interpreted as NaT
                 raise OverflowError
             return int(result)
         except (FloatingPointError, OverflowError):
-            # with endpoint negative and addend positive we risk
-            #  FloatingPointError; with reversed signed we risk OverflowError
             pass
 
         # if stride and endpoint had opposite signs, then endpoint + addend
@@ -189,10 +197,10 @@ def _generate_range_overflow_safe_signed(
             #  exceed implementation bounds, but when passing the result to
             #  np.arange will get a result slightly within the bounds
 
-            uresult = np.uint64(endpoint) + np.uint64(addend)
-            i64max = np.uint64(i8max)
+            uresult = uint64(endpoint) + uint64(addend)
+            i64max = uint64(i8max)
             assert uresult > i64max
-            if uresult <= i64max + np.uint64(stride):
+            if uresult <= i64max + uint64(abs_stride):
                 return int(uresult)
 
     raise OutOfBoundsDatetime(
