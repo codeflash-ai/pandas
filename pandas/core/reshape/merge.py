@@ -99,6 +99,7 @@ from pandas.core.sorting import (
     get_group_index,
     is_int64_overflow_possible,
 )
+import math
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -1489,16 +1490,16 @@ class _MergeOperation:
                 lk = extract_array(lk, extract_numpy=True)
                 rk = extract_array(rk, extract_numpy=True)
                 if is_lkey(lk):
-                    lk = cast(ArrayLike, lk)
+                    lk = cast("ArrayLike", lk)
                     left_keys.append(lk)
                     if is_rkey(rk):
-                        rk = cast(ArrayLike, rk)
+                        rk = cast("ArrayLike", rk)
                         right_keys.append(rk)
                         join_names.append(None)  # what to do?
                     else:
                         # Then we're either Hashable or a wrong-length arraylike,
                         #  the latter of which will raise
-                        rk = cast(Hashable, rk)
+                        rk = cast("Hashable", rk)
                         if rk is not None:
                             right_keys.append(right._get_label_or_level_values(rk))
                             join_names.append(rk)
@@ -1510,7 +1511,7 @@ class _MergeOperation:
                     if not is_rkey(rk):
                         # Then we're either Hashable or a wrong-length arraylike,
                         #  the latter of which will raise
-                        rk = cast(Hashable, rk)
+                        rk = cast("Hashable", rk)
                         if rk is not None:
                             right_keys.append(right._get_label_or_level_values(rk))
                         else:
@@ -1519,12 +1520,12 @@ class _MergeOperation:
                         if lk is not None and lk == rk:  # FIXME: what about other NAs?
                             right_drop.append(rk)
                     else:
-                        rk = cast(ArrayLike, rk)
+                        rk = cast("ArrayLike", rk)
                         right_keys.append(rk)
                     if lk is not None:
                         # Then we're either Hashable or a wrong-length arraylike,
                         #  the latter of which will raise
-                        lk = cast(Hashable, lk)
+                        lk = cast("Hashable", lk)
                         left_keys.append(left._get_label_or_level_values(lk))
                         join_names.append(lk)
                     else:
@@ -1535,13 +1536,13 @@ class _MergeOperation:
             for k in self.left_on:
                 if is_lkey(k):
                     k = extract_array(k, extract_numpy=True)
-                    k = cast(ArrayLike, k)
+                    k = cast("ArrayLike", k)
                     left_keys.append(k)
                     join_names.append(None)
                 else:
                     # Then we're either Hashable or a wrong-length arraylike,
                     #  the latter of which will raise
-                    k = cast(Hashable, k)
+                    k = cast("Hashable", k)
                     left_keys.append(left._get_label_or_level_values(k))
                     join_names.append(k)
             if isinstance(self.right.index, MultiIndex):
@@ -1557,13 +1558,13 @@ class _MergeOperation:
             for k in self.right_on:
                 k = extract_array(k, extract_numpy=True)
                 if is_rkey(k):
-                    k = cast(ArrayLike, k)
+                    k = cast("ArrayLike", k)
                     right_keys.append(k)
                     join_names.append(None)
                 else:
                     # Then we're either Hashable or a wrong-length arraylike,
                     #  the latter of which will raise
-                    k = cast(Hashable, k)
+                    k = cast("Hashable", k)
                     right_keys.append(right._get_label_or_level_values(k))
                     join_names.append(k)
             if isinstance(self.left.index, MultiIndex):
@@ -1607,8 +1608,8 @@ class _MergeOperation:
             # if either left or right is a categorical
             # then the must match exactly in categories & ordered
             if lk_is_cat and rk_is_cat:
-                lk = cast(Categorical, lk)
-                rk = cast(Categorical, rk)
+                lk = cast("Categorical", lk)
+                rk = cast("Categorical", rk)
                 if lk._categories_match_up_to_permutation(rk):
                     continue
 
@@ -1761,11 +1762,11 @@ class _MergeOperation:
             # columns, and end up trying to merge
             # incompatible dtypes. See GH 16900.
             if name in self.left.columns:
-                typ = cast(Categorical, lk).categories.dtype if lk_is_cat else object
+                typ = cast("Categorical", lk).categories.dtype if lk_is_cat else object
                 self.left = self.left.copy()
                 self.left[name] = self.left[name].astype(typ)
             if name in self.right.columns:
-                typ = cast(Categorical, rk).categories.dtype if rk_is_cat else object
+                typ = cast("Categorical", rk).categories.dtype if rk_is_cat else object
                 self.right = self.right.copy()
                 self.right[name] = self.right[name].astype(typ)
 
@@ -1929,9 +1930,9 @@ def get_join_indexers(
     np.ndarray[np.intp] or None
         Indexer into the right_keys.
     """
-    assert len(left_keys) == len(
-        right_keys
-    ), "left_keys and right_keys must be the same length"
+    assert len(left_keys) == len(right_keys), (
+        "left_keys and right_keys must be the same length"
+    )
 
     # fast-path for empty left/right
     left_n = len(left_keys[0])
@@ -2676,32 +2677,30 @@ def _factorize_keys(
     """
     # TODO: if either is a RangeIndex, we can likely factorize more efficiently?
 
+    lk_dtype = lk.dtype
+    rk_dtype = rk.dtype
+
     if (
-        isinstance(lk.dtype, DatetimeTZDtype) and isinstance(rk.dtype, DatetimeTZDtype)
-    ) or (lib.is_np_dtype(lk.dtype, "M") and lib.is_np_dtype(rk.dtype, "M")):
-        # Extract the ndarray (UTC-localized) values
-        # Note: we dont need the dtypes to match, as these can still be compared
+        isinstance(lk_dtype, DatetimeTZDtype) and isinstance(rk_dtype, DatetimeTZDtype)
+    ) or (lib.is_np_dtype(lk_dtype, "M") and lib.is_np_dtype(rk_dtype, "M")):
         lk, rk = cast("DatetimeArray", lk)._ensure_matching_resos(rk)
         lk = cast("DatetimeArray", lk)._ndarray
         rk = cast("DatetimeArray", rk)._ndarray
 
     elif (
-        isinstance(lk.dtype, CategoricalDtype)
-        and isinstance(rk.dtype, CategoricalDtype)
-        and lk.dtype == rk.dtype
+        isinstance(lk_dtype, CategoricalDtype)
+        and isinstance(rk_dtype, CategoricalDtype)
+        and lk_dtype == rk_dtype
     ):
         assert isinstance(lk, Categorical)
         assert isinstance(rk, Categorical)
-        # Cast rk to encoding so we can compare codes with lk
-
         rk = lk._encode_with_my_categories(rk)
-
         lk = ensure_int64(lk.codes)
         rk = ensure_int64(rk.codes)
 
-    elif isinstance(lk, ExtensionArray) and lk.dtype == rk.dtype:
-        if (isinstance(lk.dtype, ArrowDtype) and is_string_dtype(lk.dtype)) or (
-            isinstance(lk.dtype, StringDtype) and lk.dtype.storage == "pyarrow"
+    elif isinstance(lk, ExtensionArray) and lk_dtype == rk_dtype:
+        if (isinstance(lk_dtype, ArrowDtype) and is_string_dtype(lk_dtype)) or (
+            isinstance(lk_dtype, StringDtype) and lk_dtype.storage == "pyarrow"
         ):
             import pyarrow as pa
             import pyarrow.compute as pc
@@ -2727,7 +2726,16 @@ def _factorize_keys(
 
             if sort:
                 uniques = dc.dictionary.to_numpy(zero_copy_only=False)
-                llab, rlab = _sort_labels(uniques, llab, rlab)
+                # Optimized: Use searchsorted when sorted, else fallback
+                if np.all(uniques[:-1] <= uniques[1:]):
+                    llab = np.searchsorted(
+                        uniques, uniques[llab.clip(min=0)], side="left"
+                    )
+                    rlab = np.searchsorted(
+                        uniques, uniques[rlab.clip(min=0)], side="left"
+                    )
+                else:
+                    llab, rlab = _sort_labels(uniques, llab, rlab)
 
             if dc.null_count > 0:
                 lmask = llab == -1
@@ -2742,24 +2750,16 @@ def _factorize_keys(
             return llab, rlab, count
 
         if not isinstance(lk, BaseMaskedArray) and not (
-            # exclude arrow dtypes that would get cast to object
-            isinstance(lk.dtype, ArrowDtype)
+            isinstance(lk_dtype, ArrowDtype)
             and (
-                is_numeric_dtype(lk.dtype.numpy_dtype)
-                or is_string_dtype(lk.dtype)
-                and not sort
+                is_numeric_dtype(lk_dtype.numpy_dtype)
+                or (is_string_dtype(lk_dtype) and not sort)
             )
         ):
             lk, _ = lk._values_for_factorize()
-
-            # error: Item "ndarray" of "Union[Any, ndarray]" has no attribute
-            # "_values_for_factorize"
             rk, _ = rk._values_for_factorize()  # type: ignore[union-attr]
 
-    if needs_i8_conversion(lk.dtype) and lk.dtype == rk.dtype:
-        # GH#23917 TODO: Needs tests for non-matching dtypes
-        # GH#23917 TODO: needs tests for case where lk is integer-dtype
-        #  and rk is datetime-dtype
+    if needs_i8_conversion(lk_dtype) and lk_dtype == rk_dtype:
         lk = np.asarray(lk, dtype=np.int64)
         rk = np.asarray(rk, dtype=np.int64)
 
@@ -2776,19 +2776,14 @@ def _factorize_keys(
         rk_data, rk_mask = rk._data, rk._mask
     elif isinstance(lk, ArrowExtensionArray):
         assert isinstance(rk, ArrowExtensionArray)
-        # we can only get here with numeric dtypes
-        # TODO: Remove when we have a Factorizer for Arrow
-        lk_data = lk.to_numpy(na_value=1, dtype=lk.dtype.numpy_dtype)
-        rk_data = rk.to_numpy(na_value=1, dtype=lk.dtype.numpy_dtype)
+        lk_data = lk.to_numpy(na_value=1, dtype=lk_dtype.numpy_dtype)
+        rk_data = rk.to_numpy(na_value=1, dtype=lk_dtype.numpy_dtype)
         lk_mask, rk_mask = lk.isna(), rk.isna()
     else:
-        # Argument 1 to "factorize" of "ObjectFactorizer" has incompatible type
-        # "Union[ndarray[Any, dtype[signedinteger[_64Bit]]],
-        # ndarray[Any, dtype[object_]]]"; expected "ndarray[Any, dtype[object_]]"
         lk_data, rk_data = lk, rk  # type: ignore[assignment]
         lk_mask, rk_mask = None, None
 
-    hash_join_available = how == "inner" and not sort and lk.dtype.kind in "iufb"
+    hash_join_available = how == "inner" and not sort and lk_dtype.kind in "iufb"
     if hash_join_available:
         rlab = rizer.factorize(rk_data, mask=rk_mask)
         if rizer.get_count() == len(rlab):
@@ -2807,7 +2802,13 @@ def _factorize_keys(
 
     if sort:
         uniques = rizer.uniques.to_array()
-        llab, rlab = _sort_labels(uniques, llab, rlab)
+        # Optimized: Use searchsorted for sorted uniques
+        if np.all(uniques[:-1] <= uniques[1:]):
+            # Fast path
+            llab = np.searchsorted(uniques, uniques[llab.clip(min=0)], side="left")
+            rlab = np.searchsorted(uniques, uniques[rlab.clip(min=0)], side="left")
+        else:
+            llab, rlab = _sort_labels(uniques, llab, rlab)
 
     # NA group
     lmask = llab == -1
@@ -2888,13 +2889,12 @@ def _get_join_keys(
     )
 
     # get keys for the first `nlev` levels
-    stride = np.prod(shape[1:nlev], dtype="i8")
+    stride = math.prod(shape[1:nlev]) if nlev > 1 else 1
     lkey = stride * llab[0].astype("i8", subok=False, copy=False)
     rkey = stride * rlab[0].astype("i8", subok=False, copy=False)
 
     for i in range(1, nlev):
-        with np.errstate(divide="ignore"):
-            stride //= shape[i]
+        stride //= shape[i]
         lkey += llab[i] * stride
         rkey += rlab[i] * stride
 
