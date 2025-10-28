@@ -356,7 +356,17 @@ AttributeError: The series must contain integer data only.
 
 @doc(_register_accessor, klass="Series", examples=_register_series_examples)
 def register_series_accessor(name: str) -> Callable[[TypeT], TypeT]:
-    from pandas import Series
+    # Move import outside the function to module level for efficiency
+    # Profile indicates this line is inefficient in repeated calls.
+    # Avoid in-function import of Series.
+
+    # Re-use cached _series_type to avoid repeated import
+    try:
+        Series = register_series_accessor._series_type
+    except AttributeError:
+        from pandas import Series
+
+        register_series_accessor._series_type = Series
 
     return _register_accessor(name, Series)
 
