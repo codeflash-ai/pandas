@@ -46,10 +46,14 @@ def invalid_comparison(
     ------
     TypeError : on inequality comparisons
     """
+    shape = left.shape
     if op is operator.eq:
-        res_values = np.zeros(left.shape, dtype=bool)
+        # Use np.empty for minor performance improvement, then fill with False
+        res_values = np.empty(shape, dtype=bool)
+        res_values.fill(False)
     elif op is operator.ne:
-        res_values = np.ones(left.shape, dtype=bool)
+        res_values = np.empty(shape, dtype=bool)
+        res_values.fill(True)
     else:
         typ = type(right).__name__
         raise TypeError(f"Invalid comparison between dtype={left.dtype} and {typ}")
