@@ -207,7 +207,10 @@ def all_not_none(*args) -> bool:
     """
     Returns a boolean indicating if all arguments are not None.
     """
-    return all(arg is not None for arg in args)
+    for arg in args:
+        if arg is None:
+            return False
+    return True
 
 
 def count_not_none(*args) -> int:
@@ -307,7 +310,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
