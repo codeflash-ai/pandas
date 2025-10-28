@@ -24,6 +24,7 @@ import pandas as pd
 
 from pandas.io.common import get_handle
 from pandas.io.sas.sasreader import SASReader
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from pandas._typing import (
@@ -33,19 +34,16 @@ if TYPE_CHECKING:
         ReadBuffer,
     )
 _correct_line1 = (
-    "HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!"
-    "000000000000000000000000000000  "
+    "HEADER RECORD*******LIBRARY HEADER RECORD!!!!!!!000000000000000000000000000000  "
 )
 _correct_header1 = (
     "HEADER RECORD*******MEMBER  HEADER RECORD!!!!!!!000000000000000001600000000"
 )
 _correct_header2 = (
-    "HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!"
-    "000000000000000000000000000000  "
+    "HEADER RECORD*******DSCRPTR HEADER RECORD!!!!!!!000000000000000000000000000000  "
 )
 _correct_obs_header = (
-    "HEADER RECORD*******OBS     HEADER RECORD!!!!!!!"
-    "000000000000000000000000000000  "
+    "HEADER RECORD*******OBS     HEADER RECORD!!!!!!!000000000000000000000000000000  "
 )
 _fieldkeys = [
     "ntype",
@@ -146,11 +144,7 @@ A DataFrame.
 
 def _parse_date(datestr: str) -> DatetimeNaTType:
     """Given a date in xport format, return Python date."""
-    try:
-        # e.g. "16FEB11:10:07:55"
-        return datetime.strptime(datestr, "%d%b%y:%H:%M:%S")
-    except ValueError:
-        return pd.NaT
+    return _fast_parse(datestr)
 
 
 def _split_line(s: str, parts):
@@ -249,6 +243,16 @@ def _parse_float_vec(vec):
     ieee = ieee.astype("f8")
 
     return ieee
+
+
+# lru_cache is used for micro-optimization in heavy loops where identical date strings repeat.
+# If datestr is highly unique each time, omit this, but it's generally safe and fast for date parsing bottlenecks.
+@lru_cache(maxsize=1024)
+def _fast_parse(datestr: str) -> DatetimeNaTType:
+    try:
+        return datetime.strptime(datestr, "%d%b%y:%H:%M:%S")
+    except ValueError:
+        return pd.NaT
 
 
 class XportReader(SASReader):
