@@ -28,6 +28,7 @@ from pandas.core.dtypes.generic import (
 from pandas.core.dtypes.missing import isna
 
 from pandas.core.construction import extract_array
+import math
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -112,7 +113,7 @@ def get_indexer_indexer(
         indexer = nargsort(
             target,
             kind=kind,
-            ascending=cast(bool, ascending),
+            ascending=cast("bool", ascending),
             na_position=na_position,
         )
     return indexer
@@ -233,11 +234,8 @@ def get_compressed_ids(
 
 
 def is_int64_overflow_possible(shape: Shape) -> bool:
-    the_prod = 1
-    for x in shape:
-        the_prod *= int(x)
-
-    return the_prod >= lib.i8max
+    # Use math.prod for efficient product calculation
+    return math.prod(int(x) for x in shape) >= lib.i8max
 
 
 def _decons_group_index(
@@ -344,7 +342,7 @@ def lexsort_indexer(
     for k, order in zip(reversed(keys), orders):
         k = ensure_key_mapped(k, key)
         if codes_given:
-            codes = cast(np.ndarray, k)
+            codes = cast("np.ndarray", k)
             n = codes.max() + 1 if len(codes) else 0
         else:
             cat = Categorical(k, ordered=True)
