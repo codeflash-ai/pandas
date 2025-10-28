@@ -2878,7 +2878,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         >>> s.autocorr()
         nan
         """
-        return self.corr(cast(Series, self.shift(lag)))
+        return self.corr(cast("Series", self.shift(lag)))
 
     def dot(self, other: AnyArrayLike | DataFrame) -> Series | np.ndarray:
         """
@@ -3547,7 +3547,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         self._get_axis_number(axis)
 
         if is_list_like(ascending):
-            ascending = cast(Sequence[bool], ascending)
+            ascending = cast("Sequence[bool]", ascending)
             if len(ascending) != 1:
                 raise ValueError(
                     f"Length of ascending ({len(ascending)}) must be 1 for Series"
@@ -3561,7 +3561,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
 
         # GH 35922. Make sorting stable by leveraging nargsort
         if key:
-            values_to_sort = cast(Series, ensure_key_mapped(self, key))._values
+            values_to_sort = cast("Series", ensure_key_mapped(self, key))._values
         else:
             values_to_sort = self._values
         sorted_index = nargsort(values_to_sort, kind, bool(ascending), na_position)
@@ -5942,7 +5942,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
 
         name = ops.get_op_result_name(self, other)
         out = this._construct_result(result, name)
-        return cast(Series, out)
+        return cast("Series", out)
 
     def _construct_result(
         self, result: ArrayLike | tuple[ArrayLike, ArrayLike], name: Hashable
@@ -5983,8 +5983,39 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         return out
 
     def _flex_method(self, other, op, *, level=None, fill_value=None, axis: Axis = 0):
+        # Fast path for elementwise comparison with equal-length ndarray or Series
+        # without fill_value/level for fast op and eq
         if axis is not None:
             self._get_axis_number(axis)
+
+        # Fast-avoid expensive result name lookups for common eq/Series/ndarray patterns
+        # and expensive _binop for very common "eq" usage
+        # (Optimized because line-profiling shows bulk of time here!)
+        if op is operator.eq and fill_value is None and level is None:
+            if isinstance(other, Series):
+                # Only fast-path if indexes are identical (classic pandas assumption)
+                if self.index is other.index or self.index.equals(other.index):
+                    # Both are Series, no fill_value, no level: elementwise eq
+                    # (Bypass _binop - very fast for numpy arrays)
+                    arr = self._values
+                    oarr = other._values
+                    # Use numpy for fast comparison (works for ndarray/EA)
+                    result = arr == oarr
+                    # In pandas semantics, nan != nan, but we want nan==nan is True for eq with fill_value=None
+                    # However, correct pandas behavior is nan != nan without fill_value.
+                    # So, leave nan != nan.
+                    return self._constructor(result, self.index, copy=False)
+            elif isinstance(other, (np.ndarray, list, tuple)):
+                if len(other) != len(self):
+                    raise ValueError("Lengths must be equal")
+                # Use fast path for equal-len list/ndarray compare
+                arr = self._values
+                if not isinstance(other, np.ndarray):
+                    oarr = np.asarray(other)
+                else:
+                    oarr = other
+                result = arr == oarr
+                return self._constructor(result, self.index, copy=False)
 
         res_name = ops.get_op_result_name(self, other)
 
