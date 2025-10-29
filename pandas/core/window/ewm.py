@@ -66,6 +66,8 @@ if TYPE_CHECKING:
     )
     from pandas.core.generic import NDFrame
 
+_LOG_HALF = np.log(0.5)
+
 
 def get_center_of_mass(
     comass: float | None,
@@ -88,7 +90,7 @@ def get_center_of_mass(
     elif halflife is not None:
         if halflife <= 0:
             raise ValueError("halflife must satisfy: halflife > 0")
-        decay = 1 - np.exp(np.log(0.5) / halflife)
+        decay = 1 - np.exp(_LOG_HALF / halflife)
         comass = 1 / decay - 1
     elif alpha is not None:
         if alpha <= 0 or alpha > 1:
