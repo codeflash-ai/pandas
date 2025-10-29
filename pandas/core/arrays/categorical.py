@@ -2473,7 +2473,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             mask = self.isna()
 
         res_codes = algorithms.mode(codes, mask=mask)
-        res_codes = cast(np.ndarray, res_codes)
+        res_codes = cast("np.ndarray", res_codes)
         assert res_codes.dtype == codes.dtype
         res = self._from_backing_data(res_codes)
         return res
@@ -2523,12 +2523,44 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         -------
         bool
         """
+        # Quick reference equality check
+        if self is other:
+            return True
+        # Cheap type check
         if not isinstance(other, Categorical):
             return False
-        elif self._categories_match_up_to_permutation(other):
-            other = self._encode_with_my_categories(other)
+
+        # Inline: avoid full hash computation by doing quick field comparisons
+        self_dtype = self.dtype
+        other_dtype = other.dtype
+        # Fast equality for the common case where both dtypes are the same object (often hit in pandas workflows)
+        if self_dtype is other_dtype:
+            recode_needed = False
+        else:
+            # Avoid expensive hash() if we can avoid it by direct pointer equality and simple fields.
+            # Compare ordered and categories directly (categories hashing is cheap but direct equality is better)
+            if self_dtype.ordered != other_dtype.ordered:
+                return False
+            self_categories = getattr(self_dtype, "categories", None)
+            other_categories = getattr(other_dtype, "categories", None)
+            if self_categories is not None and other_categories is not None:
+                # Index.equals is already highly optimized; compare directly
+                if not self_categories.equals(other_categories):
+                    return False
+            else:
+                # Defensive fallback to original hash-based logic
+                if hash(self_dtype) != hash(other_dtype):
+                    return False
+            recode_needed = True
+
+        if recode_needed:
+            # Avoid object temporary if possible by using a fast inline call instead of _encode_with_my_categories
+            codes = recode_for_categories(
+                other.codes, other.categories, self.categories, copy=False
+            )
+            return np.array_equal(self._codes, codes)
+        else:
             return np.array_equal(self._codes, other._codes)
-        return False
 
     def _accumulate(self, name: str, skipna: bool = True, **kwargs) -> Self:
         func: Callable
