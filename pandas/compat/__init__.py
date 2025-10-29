@@ -107,9 +107,8 @@ def is_platform_arm() -> bool:
     bool
         True if the running platform uses ARM architecture.
     """
-    return platform.machine() in ("arm64", "aarch64") or platform.machine().startswith(
-        "armv"
-    )
+    m = platform.machine()
+    return m in ("arm64", "aarch64") or m.startswith("armv")
 
 
 def is_platform_power() -> bool:
@@ -150,6 +149,13 @@ def is_ci_environment() -> bool:
 
 
 __all__ = [
+    "HAS_PYARROW",
+    "IS64",
+    "ISMUSL",
+    "PY311",
+    "PY312",
+    "PYPY",
+    "WASM",
     "is_numpy_dev",
     "pa_version_under10p1",
     "pa_version_under11p0",
@@ -159,11 +165,4 @@ __all__ = [
     "pa_version_under16p0",
     "pa_version_under17p0",
     "pa_version_under18p0",
-    "HAS_PYARROW",
-    "IS64",
-    "ISMUSL",
-    "PY311",
-    "PY312",
-    "PYPY",
-    "WASM",
 ]
