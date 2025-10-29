@@ -51,6 +51,10 @@ from pandas.io.formats import printing
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_TOKENIZE_OP = tokenize.OP
+
+_LOCAL_TAG = LOCAL_TAG
+
 
 def _rewrite_assign(tok: tuple[int, str]) -> tuple[int, str]:
     """
@@ -117,8 +121,8 @@ def _replace_locals(tok: tuple[int, str]) -> tuple[int, str]:
     is a ``tokenize.OP`` and to replace the ``'@'`` symbol with it.
     """
     toknum, tokval = tok
-    if toknum == tokenize.OP and tokval == "@":
-        return tokenize.OP, LOCAL_TAG
+    if toknum == _TOKENIZE_OP and tokval == "@":
+        return _TOKENIZE_OP, _LOCAL_TAG
     return toknum, tokval
 
 
@@ -512,8 +516,7 @@ class BaseExprVisitor(ast.NodeVisitor):
             )
 
         if self.engine != "pytables" and (
-            res.op in CMP_OPS_SYMS
-            and getattr(lhs, "is_datetime", False)
+            (res.op in CMP_OPS_SYMS and getattr(lhs, "is_datetime", False))
             or getattr(rhs, "is_datetime", False)
         ):
             # all date ops must be done in python bc numexpr doesn't work
@@ -699,7 +702,7 @@ class BaseExprVisitor(ast.NodeVisitor):
                 if not isinstance(key, ast.keyword):
                     # error: "expr" has no attribute "id"
                     raise ValueError(
-                        "keyword error in function call " f"'{node.func.id}'"  # type: ignore[attr-defined]
+                        f"keyword error in function call '{node.func.id}'"  # type: ignore[attr-defined]
                     )
 
                 if key.arg:
