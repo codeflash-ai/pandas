@@ -1750,7 +1750,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -4505,7 +4505,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4625,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5091,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5229,13 +5229,18 @@ def _maybe_convert(values: np.ndarray, val_kind: str, encoding: str, errors: str
 
 
 def _get_converter(kind: str, encoding: str, errors: str):
+    # Use direct comparison for expected kinds to avoid expensive substring search
     if kind == "datetime64":
         return lambda x: np.asarray(x, dtype="M8[ns]")
-    elif "datetime64" in kind:
+    elif kind.startswith(
+        "datetime64"
+    ):  # substring search is more expensive than startswith
         return lambda x: np.asarray(x, dtype=kind)
     elif kind == "string":
+        # Move instantiation of lambda parameters outside for less overhead inside lambda
+        nan_rep = None
         return lambda x: _unconvert_string_array(
-            x, nan_rep=None, encoding=encoding, errors=errors
+            x, nan_rep=nan_rep, encoding=encoding, errors=errors
         )
     else:  # pragma: no cover
         raise ValueError(f"invalid kind {kind}")
