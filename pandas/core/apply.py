@@ -218,19 +218,19 @@ class Apply(metaclass=abc.ABCMeta):
             return obj.T.transform(func, 0, *args, **kwargs).T
 
         if is_list_like(func) and not is_dict_like(func):
-            func = cast(list[AggFuncTypeBase], func)
+            func = cast("list[AggFuncTypeBase]", func)
             # Convert func equivalent dict
             if is_series:
                 func = {com.get_callable_name(v) or v: v for v in func}
             else:
-                func = {col: func for col in obj}
+                func = dict.fromkeys(obj, func)
 
         if is_dict_like(func):
-            func = cast(AggFuncTypeDict, func)
+            func = cast("AggFuncTypeDict", func)
             return self.transform_dict_like(func)
 
         # func is either str or callable
-        func = cast(AggFuncTypeBase, func)
+        func = cast("AggFuncTypeBase", func)
         try:
             result = self.transform_str_or_callable(func)
         except TypeError:
@@ -330,7 +330,7 @@ class Apply(metaclass=abc.ABCMeta):
             Data for result. When aggregating with a Series, this can contain any
             Python objects.
         """
-        func = cast(list[AggFuncTypeBase], self.func)
+        func = cast("list[AggFuncTypeBase]", self.func)
         obj = self.obj
 
         results = []
@@ -437,7 +437,7 @@ class Apply(metaclass=abc.ABCMeta):
 
         obj = self.obj
         is_groupby = isinstance(obj, (DataFrameGroupBy, SeriesGroupBy))
-        func = cast(AggFuncTypeDict, self.func)
+        func = cast("AggFuncTypeDict", self.func)
         func = self.normalize_dictlike_arg(op_name, selected_obj, func)
 
         is_non_unique_col = (
@@ -562,7 +562,7 @@ class Apply(metaclass=abc.ABCMeta):
         result: Series or DataFrame
         """
         # Caller is responsible for checking isinstance(self.f, str)
-        func = cast(str, self.func)
+        func = cast("str", self.func)
 
         obj = self.obj
 
@@ -1158,7 +1158,7 @@ class FrameRowApply(FrameApply):
         return numba_func
 
     def apply_with_numba(self) -> dict[int, Any]:
-        func = cast(Callable, self.func)
+        func = cast("Callable", self.func)
         args, kwargs = prepare_function_arguments(
             func, self.args, self.kwargs, num_required_args=1
         )
@@ -1300,7 +1300,7 @@ class FrameColumnApply(FrameApply):
         return numba_func
 
     def apply_with_numba(self) -> dict[int, Any]:
-        func = cast(Callable, self.func)
+        func = cast("Callable", self.func)
         args, kwargs = prepare_function_arguments(
             func, self.args, self.kwargs, num_required_args=1
         )
@@ -1447,7 +1447,7 @@ class SeriesApply(NDFrameApply):
 
     def apply_standard(self) -> DataFrame | Series:
         # caller is responsible for ensuring that f is Callable
-        func = cast(Callable, self.func)
+        func = cast("Callable", self.func)
         obj = self.obj
 
         if isinstance(func, np.ufunc):
@@ -1645,8 +1645,7 @@ def reconstruct_func(
             # GH 28426 will raise error if duplicated function names are used and
             # there is no reassigned name
             raise SpecificationError(
-                "Function names must be unique if there is no new column names "
-                "assigned"
+                "Function names must be unique if there is no new column names assigned"
             )
         if func is None:
             # nicer error message
@@ -1687,9 +1686,12 @@ def is_multi_agg_with_relabel(**kwargs) -> bool:
     >>> is_multi_agg_with_relabel()
     False
     """
-    return all(isinstance(v, tuple) and len(v) == 2 for v in kwargs.values()) and (
-        len(kwargs) > 0
-    )
+    if not kwargs:
+        return False
+    for v in kwargs.values():
+        if not (isinstance(v, tuple) and len(v) == 2):
+            return False
+    return True
 
 
 def normalize_keyword_aggregation(
