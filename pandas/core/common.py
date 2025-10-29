@@ -62,6 +62,8 @@ if TYPE_CHECKING:
 
     from pandas import Index
 
+_PARTIAL_TYPE = partial
+
 
 def flatten(line):
     """
@@ -307,7 +309,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
@@ -361,7 +363,8 @@ def get_callable_name(obj):
     if hasattr(obj, "__name__"):
         return getattr(obj, "__name__")
     # some objects don't; could recurse
-    if isinstance(obj, partial):
+    # cache the type for isinstance check
+    if isinstance(obj, _PARTIAL_TYPE):
         return get_callable_name(obj.func)
     # fall back to class name
     if callable(obj):
