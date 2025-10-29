@@ -63,6 +63,8 @@ if TYPE_CHECKING:
         DtypeObj,
     )
 
+_object_dtype_set = {object, np.object_, "object", "O", "object_"}
+
 DT64NS_DTYPE = conversion.DT64NS_DTYPE
 TD64NS_DTYPE = conversion.TD64NS_DTYPE
 INT64_DTYPE = np.dtype(np.int64)
@@ -1806,7 +1808,7 @@ def pandas_dtype(dtype) -> DtypeObj:
     >>> pd.api.types.pandas_dtype(int)
     dtype('int64')
     """
-    # short-circuit
+    # short-circuit for most common types
     if isinstance(dtype, np.ndarray):
         return dtype.dtype
     elif isinstance(dtype, (np.dtype, ExtensionDtype)):
@@ -1817,6 +1819,10 @@ def pandas_dtype(dtype) -> DtypeObj:
         from pandas.core.arrays.string_ import StringDtype
 
         return StringDtype(na_value=np.nan)
+
+    # Fast check for object types; avoids costly registry search
+    if is_hashable(dtype) and dtype in _object_dtype_set:
+        return np.dtype("O") if dtype != object else np.dtype(object)
 
     # registered extension types
     result = registry.find(dtype)
@@ -1832,8 +1838,7 @@ def pandas_dtype(dtype) -> DtypeObj:
             result = result()
         return result
 
-    # try a numpy dtype
-    # raise a consistent TypeError if failed
+    # try a numpy dtype, with error reporting
     try:
         with warnings.catch_warnings():
             # GH#51523 - Series.astype(np.integer) doesn't show
@@ -1842,7 +1847,6 @@ def pandas_dtype(dtype) -> DtypeObj:
             warnings.simplefilter("always", DeprecationWarning)
             npdtype = np.dtype(dtype)
     except SyntaxError as err:
-        # np.dtype uses `eval` which can raise SyntaxError
         raise TypeError(f"data type '{dtype}' not understood") from err
 
     # Any invalid dtype (such as pd.Timestamp) should raise an error.
@@ -1850,15 +1854,7 @@ def pandas_dtype(dtype) -> DtypeObj:
     # also catch some valid dtypes such as object, np.object_ and 'object'
     # which we safeguard against by catching them earlier and returning
     # np.dtype(valid_dtype) before this condition is evaluated.
-    if is_hashable(dtype) and dtype in [
-        object,
-        np.object_,
-        "object",
-        "O",
-        "object_",
-    ]:
-        # check hashability to avoid errors/DeprecationWarning when we get
-        # here and `dtype` is an array
+    if is_hashable(dtype) and dtype in _object_dtype_set:
         return npdtype
     elif npdtype.kind == "O":
         raise TypeError(f"dtype '{dtype}' not understood")
@@ -1889,13 +1885,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1937,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]

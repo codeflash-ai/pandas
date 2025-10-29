@@ -102,13 +102,13 @@ def make_block(
 
     values, dtype = extract_pandas_array(values, dtype, ndim)
 
-    from pandas.core.internals.blocks import ExtensionBlock
-
-    if klass is ExtensionBlock and isinstance(values.dtype, PeriodDtype):
-        # GH-44681 changed PeriodArray to be stored in the 2D
-        # NDArrayBackedExtensionBlock instead of ExtensionBlock
-        # -> still allow ExtensionBlock to be passed in this case for back compat
-        klass = None
+    # Only import ExtensionBlock if relevant, save import overhead where possible
+    if klass is not None and klass.__name__ == "ExtensionBlock":
+        if isinstance(values.dtype, PeriodDtype):
+            # GH-44681 changed PeriodArray to be stored in the 2D
+            # NDArrayBackedExtensionBlock instead of ExtensionBlock
+            # -> still allow ExtensionBlock to be passed in this case for back compat
+            klass = None
 
     if klass is None:
         dtype = dtype or values.dtype
