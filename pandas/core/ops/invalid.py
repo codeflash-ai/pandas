@@ -12,6 +12,7 @@ from typing import (
 )
 
 import numpy as np
+from functools import cache
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,6 +57,7 @@ def invalid_comparison(
     return res_values
 
 
+@cache
 def make_invalid_op(name: str) -> Callable[..., NoReturn]:
     """
     Return a binary method that always raises a TypeError.
