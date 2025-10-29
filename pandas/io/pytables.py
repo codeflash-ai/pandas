@@ -1750,7 +1750,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2048,10 +2048,9 @@ class TableIterator:
         self.stop = stop
 
         self.coordinates = None
+        # Avoid unnecessary int conversion
         if iterator or chunksize is not None:
-            if chunksize is None:
-                chunksize = 100000
-            self.chunksize = int(chunksize)
+            self.chunksize = 100000 if chunksize is None else int(chunksize)
         else:
             self.chunksize = None
 
@@ -2074,32 +2073,45 @@ class TableIterator:
         self.close()
 
     def close(self) -> None:
+        # Minor optimization: avoid attribute lookup and store.close if not auto_close
         if self.auto_close:
-            self.store.close()
+            store = self.store
+            if store is not None:
+                store.close()
 
     def get_result(self, coordinates: bool = False):
-        #  return the actual iterator
-        if self.chunksize is not None:
-            if not isinstance(self.s, Table):
+        """
+        Return the actual iterator or results.
+        Optimized control flow to avoid repeated isinstance and local variable lookups.
+        """
+        s = self.s
+        func = self.func
+        start = self.start
+        stop = self.stop
+        where = self.where
+        chunksize = self.chunksize
+
+        # Fast path for iteration/chunksize use
+        if chunksize is not None:
+            if not isinstance(s, Table):
                 raise TypeError("can only use an iterator or chunksize on a table")
-
-            self.coordinates = self.s.read_coordinates(where=self.where)
-
+            self.coordinates = s.read_coordinates(where=where)
             return self
 
-        # if specified read via coordinates (necessary for multiple selections
+        # If specified, read via coordinates (necessary for multiple selections)
         if coordinates:
-            if not isinstance(self.s, Table):
+            if not isinstance(s, Table):
                 raise TypeError("can only read_coordinates on a table")
-            where = self.s.read_coordinates(
-                where=self.where, start=self.start, stop=self.stop
-            )
-        else:
-            where = self.where
+            where = s.read_coordinates(where=where, start=start, stop=stop)
 
-        # directly return the result
-        results = self.func(self.start, self.stop, where)
-        self.close()
+        # Directly return the result, and close as necessary
+        results = func(start, stop, where)
+
+        # Micro-opt: inline close logic, prevent double lookup
+        auto_close = self.auto_close
+        store = self.store
+        if auto_close and store is not None:
+            store.close()
         return results
 
 
@@ -4338,12 +4350,21 @@ class Table(Fixed):
         # create the selection
         selection = Selection(self, where=where, start=start, stop=stop)
         coords = selection.select_coords()
-        if selection.filter is not None:
-            for field, op, filt in selection.filter.format():
-                data = self.read_column(
-                    field, start=coords.min(), stop=coords.max() + 1
-                )
-                coords = coords[op(data.iloc[coords - coords.min()], filt).values]
+
+        # Minor optimization: guard clause for filter
+        selection_filter = selection.filter
+        if selection_filter is not None:
+            filt_format = selection_filter.format()
+            # Avoid repeated attribute access and minimize overhead
+            coords_min = coords.min()
+            coords_max = coords.max() + 1
+            for field, op, filt in filt_format:
+                data = self.read_column(field, start=coords_min, stop=coords_max)
+                # This op/data selection may be expensive; minimize allocations
+                offset = coords_min
+                indexer = coords - offset
+                filtered = op(data.iloc[indexer], filt).values
+                coords = coords[filtered]
 
         return Index(coords)
 
@@ -4505,7 +4526,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4646,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5112,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
