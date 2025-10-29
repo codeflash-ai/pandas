@@ -222,24 +222,36 @@ def contains(cat, key, container) -> bool:
     """
     hash(key)
 
-    # get location of key in categories.
-    # If a KeyError, the key isn't in categories, so logically
-    #  can't be in container either.
     try:
         loc = cat.categories.get_loc(key)
     except (KeyError, TypeError):
         return False
 
-    # loc is the location of key in categories, but also the *value*
-    # for key in container. So, `key` may be in categories,
-    # but still not in `container`. Example ('b' in categories,
-    # but not in values):
-    # 'b' in Categorical(['a'], categories=['a', 'b'])  # False
     if is_scalar(loc):
+        # Fast path, unchanged
         return loc in container
     else:
-        # if categories is an IntervalIndex, loc is an array.
-        return any(loc_ in container for loc_ in loc)
+        # Optimization: Convert container to set for fast lookup if not already a set,
+        # but only if loc has more than 1 element, as set conversion has overhead
+        # Check for __contains__ being from set, dict, etc.
+        container_set = None
+        loc_len = len(loc)
+        # For 1-2 element loc, don't convert as overhead outweighs gain
+        if loc_len > 2 and not isinstance(container, (set, frozenset, dict)):
+            container_set = set(container)
+            # If dict, use its keys
+        elif isinstance(container, dict):
+            container_set = set(container.keys())
+
+        if container_set is not None:
+            # Use set lookups
+            for loc_ in loc:
+                if loc_ in container_set:
+                    return True
+            return False
+        else:
+            # Fallback to original generator pattern
+            return any(loc_ in container for loc_ in loc)
 
 
 # error: Definition of "delete/ravel/T/repeat/copy" in base class "NDArrayBacked"
@@ -2473,7 +2485,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             mask = self.isna()
 
         res_codes = algorithms.mode(codes, mask=mask)
-        res_codes = cast(np.ndarray, res_codes)
+        res_codes = cast("np.ndarray", res_codes)
         assert res_codes.dtype == codes.dtype
         res = self._from_backing_data(res_codes)
         return res
