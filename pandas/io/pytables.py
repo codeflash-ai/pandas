@@ -99,6 +99,7 @@ from pandas.io.formats.printing import (
     adjoin,
     pprint_thing,
 )
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -1750,7 +1751,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2559,6 +2560,7 @@ class DataCol(IndexCol):
         return _tables().StringCol(itemsize=itemsize, shape=shape[0])
 
     @classmethod
+    @lru_cache(maxsize=64)
     def get_atom_coltype(cls, kind: str) -> type[Col]:
         """return the PyTables column class for this column"""
         if kind.startswith("uint"):
@@ -4505,7 +4507,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4627,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5093,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
