@@ -169,7 +169,7 @@ def validate_argsort_with_ascending(ascending: bool | int | None, args, kwargs) 
         ascending = True
 
     validate_argsort_kind(args, kwargs, max_fname_arg_count=3)
-    ascending = cast(bool, ascending)
+    ascending = cast("bool", ascending)
     return ascending
 
 
@@ -352,9 +352,7 @@ def validate_minmax_axis(axis: AxisInt | None, ndim: int = 1) -> None:
     ------
     ValueError
     """
-    if axis is None:
-        return
-    if axis >= ndim or (axis < 0 and ndim + axis < 0):
+    if not (axis is None or (axis < ndim and (axis >= 0 or ndim + axis >= 0))):
         raise ValueError(f"`axis` must be fewer than the number of dimensions ({ndim})")
 
 
