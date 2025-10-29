@@ -52,21 +52,33 @@ def _reductions(
     axis : int, optional, default None
     """
     if not skipna:
-        if mask.any() or check_below_min_count(values.shape, None, min_count):
+        # Fast path: check if there are any masked values or min_count not met.
+        # mask.any() is potentially expensive for large arrays: short-circuit if mask is empty.
+        # Avoid passing full mask to check_below_min_count, as None is faster for that call.
+        mask_has_any = np.any(mask) if mask.size > 0 else False
+        if mask_has_any or check_below_min_count(values.shape, None, min_count):
             return libmissing.NA
         else:
             return func(values, axis=axis, **kwargs)
     else:
+        # Check below min_count: only relevant if axis is None or for 1D reductions.
         if check_below_min_count(values.shape, mask, min_count) and (
             axis is None or values.ndim == 1
         ):
             return libmissing.NA
 
         if values.dtype == np.dtype(object):
-            # object dtype does not support `where` without passing an initial
-            values = values[~mask]
+            # Avoid allocation of full boolean mask if all elements are valid
+            if mask.any():
+                values_non_missing = values[~mask]
+            else:
+                values_non_missing = values
+            return func(values_non_missing, axis=axis, **kwargs)
+        # Use np.sum/prod/mean etc. with where=, but avoid recreating mask if all are valid
+        if mask.any():
+            return func(values, where=~mask, axis=axis, **kwargs)
+        else:
             return func(values, axis=axis, **kwargs)
-        return func(values, where=~mask, axis=axis, **kwargs)
 
 
 def sum(
@@ -194,6 +206,9 @@ def std(
     if not values.size or mask.all():
         return libmissing.NA
 
+    # Avoid catching warnings if values and mask guarantee no masked values
+    if not mask.any():
+        return np.std(values, axis=axis, ddof=ddof)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return _reductions(
