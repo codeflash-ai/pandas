@@ -88,7 +88,7 @@ def register_pandas_matplotlib_converters(func: F) -> F:
         with pandas_converters():
             return func(*args, **kwargs)
 
-    return cast(F, wrapper)
+    return cast("F", wrapper)
 
 
 @contextlib.contextmanager
@@ -1097,10 +1097,11 @@ class TimeSeries_TimedeltaFormatter(mpl.ticker.Formatter):  # pyright: ignore[re
         m, s = divmod(s, 60)
         h, m = divmod(m, 60)
         d, h = divmod(h, 24)
-        decimals = int(ns * 10 ** (n_decimals - 9))
-        s = f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
         if n_decimals > 0:
-            s += f".{decimals:0{n_decimals}d}"
+            decimals = ns // (10 ** (9 - n_decimals))
+            s = f"{int(h):02d}:{int(m):02d}:{int(s):02d}.{decimals:0{n_decimals}d}"
+        else:
+            s = f"{int(h):02d}:{int(m):02d}:{int(s):02d}"
         if d != 0:
             s = f"{int(d):d} days {s}"
         return s
