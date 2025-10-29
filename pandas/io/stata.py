@@ -1503,7 +1503,7 @@ class StataReader(StataParser, abc.Iterator):
         dtypes = []  # Convert struct data types to numpy data type
         for i, typ in enumerate(self._typlist):
             if typ in self.NUMPY_TYPE_MAP:
-                typ = cast(str, typ)  # only strs in NUMPY_TYPE_MAP
+                typ = cast("str", typ)  # only strs in NUMPY_TYPE_MAP
                 dtypes.append((f"s{i}", f"{self._byteorder}{self.NUMPY_TYPE_MAP[typ]}"))
             else:
                 dtypes.append((f"s{i}", f"S{typ}"))
@@ -1832,13 +1832,13 @@ the string values returned are correct."""
                 if fmt not in self.OLD_VALID_RANGE:
                     continue
 
-                fmt = cast(str, fmt)  # only strs in OLD_VALID_RANGE
+                fmt = cast("str", fmt)  # only strs in OLD_VALID_RANGE
                 nmin, nmax = self.OLD_VALID_RANGE[fmt]
             else:
                 if fmt not in self.VALID_RANGE:
                     continue
 
-                fmt = cast(str, fmt)  # only strs in VALID_RANGE
+                fmt = cast("str", fmt)  # only strs in VALID_RANGE
                 nmin, nmax = self.VALID_RANGE[fmt]
             series = data.iloc[:, i]
 
@@ -2174,9 +2174,12 @@ def _pad_bytes(name: AnyStr, length: int) -> AnyStr:
     """
     Take a char string and pads it with null bytes until it's length chars.
     """
+    n_pad = length - len(name)
+    if n_pad <= 0:
+        return name
     if isinstance(name, bytes):
-        return name + b"\x00" * (length - len(name))
-    return name + "\x00" * (length - len(name))
+        return name + (b"\x00" * n_pad)
+    return name + ("\x00" * n_pad)
 
 
 def _convert_datetime_to_stata_type(fmt: str) -> np.dtype:
@@ -2867,7 +2870,7 @@ supported types."""
         # ds_format - just use 114
         self._write_bytes(struct.pack("b", 114))
         # byteorder
-        self._write(byteorder == ">" and "\x01" or "\x02")
+        self._write((byteorder == ">" and "\x01") or "\x02")
         # filetype
         self._write("\x01")
         # unused
@@ -3413,7 +3416,7 @@ class StataWriter117(StataWriter):
         # ds_format - 117
         bio.write(self._tag(bytes(str(self._dta_version), "utf-8"), "release"))
         # byteorder
-        bio.write(self._tag(byteorder == ">" and "MSF" or "LSF", "byteorder"))
+        bio.write(self._tag((byteorder == ">" and "MSF") or "LSF", "byteorder"))
         # number of vars, 2 bytes in 117 and 118, 4 byte in 119
         nvar_type = "H" if self._dta_version <= 118 else "I"
         bio.write(self._tag(struct.pack(byteorder + nvar_type, self.nvar), "K"))
