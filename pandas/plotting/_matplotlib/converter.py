@@ -88,7 +88,7 @@ def register_pandas_matplotlib_converters(func: F) -> F:
         with pandas_converters():
             return func(*args, **kwargs)
 
-    return cast(F, wrapper)
+    return cast("F", wrapper)
 
 
 @contextlib.contextmanager
@@ -512,12 +512,14 @@ def has_level_label(label_flags: npt.NDArray[np.intp], vmin: float) -> bool:
     if the minimum view limit is not an exact integer, then the first tick
     label won't be shown, so we must adjust for that.
     """
-    if label_flags.size == 0 or (
-        label_flags.size == 1 and label_flags[0] == 0 and vmin % 1 > 0.0
-    ):
+    size = label_flags.size
+    if size == 0:
         return False
-    else:
-        return True
+    if size == 1:
+        val = label_flags.item()
+        if val == 0 and vmin % 1 > 0.0:
+            return False
+    return True
 
 
 def _get_periods_per_ymd(freq: BaseOffset) -> tuple[int, int, int]:
