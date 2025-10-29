@@ -38,7 +38,6 @@ from pandas._libs import (
     writers as libwriters,
 )
 from pandas._libs.lib import is_string_array
-from pandas._libs.tslibs import timezones
 from pandas.compat._optional import import_optional_dependency
 from pandas.compat.pickle_compat import patch_pickle
 from pandas.errors import (
@@ -99,6 +98,7 @@ from pandas.io.formats.printing import (
     adjoin,
     pprint_thing,
 )
+from pandas._libs.tslibs.timezones import get_timezone
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -1750,7 +1750,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -4505,7 +4505,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4625,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -4960,8 +4960,7 @@ def _reindex_axis(
 
 def _get_tz(tz: tzinfo) -> str | tzinfo:
     """for a tz-aware type, return an encoded zone"""
-    zone = timezones.get_timezone(tz)
-    return zone
+    return get_timezone(tz)
 
 
 def _set_tz(
@@ -5091,7 +5090,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
