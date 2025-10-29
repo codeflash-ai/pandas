@@ -118,16 +118,29 @@ def _minmax(
         Whether to skip NA.
     axis : int, optional, default None
     """
+    # Avoid unnecessary nonzero/size/any computations by using np.count_nonzero,
+    # and avoid creating unnecessary boolean arrays with fancy indexing unless needed.
+
+    n_missing = np.count_nonzero(mask)
+    n_total = values.size
+
     if not skipna:
-        if mask.any() or not values.size:
+        if n_missing or n_total == 0:
             # min/max with empty array raise in numpy, pandas returns NA
             return libmissing.NA
         else:
             return func(values, axis=axis)
     else:
-        subset = values[~mask]
-        if subset.size:
-            return func(subset, axis=axis)
+        n_valid = n_total - n_missing
+        if n_valid:
+            # Only index values if there are missing; otherwise, pass values directly
+            if n_missing:
+                # Only index when mask is not all False (i.e., there are missing)
+                subset = values[~mask]
+                # subset.size is always == n_valid, checked above
+                return func(subset, axis=axis)
+            else:
+                return func(values, axis=axis)
         else:
             # min/max with empty array raise in numpy, pandas returns NA
             return libmissing.NA
