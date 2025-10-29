@@ -95,7 +95,10 @@ def get_op_result_name(left, right):
     name : object
         Usually a string
     """
-    if isinstance(right, (ABCSeries, ABCIndex)):
+    # Fast path: avoid isinstance if right is left (most frequent case)
+    if type(right) is type(left) and hasattr(right, "name"):
+        name = _maybe_match_name(left, right)
+    elif isinstance(right, (ABCSeries, ABCIndex)):
         name = _maybe_match_name(left, right)
     else:
         name = left.name
@@ -122,27 +125,27 @@ def _maybe_match_name(a, b):
     --------
     pandas.core.common.consensus_name_attr
     """
-    a_has = hasattr(a, "name")
-    b_has = hasattr(b, "name")
+    # Cache name and hasattr call for reuse, avoid repeated attribute access
+    a_name = getattr(a, "name", None)
+    b_name = getattr(b, "name", None)
+    a_has = a_name is not None or hasattr(a, "name")
+    b_has = b_name is not None or hasattr(b, "name")
     if a_has and b_has:
         try:
-            if a.name == b.name:
-                return a.name
-            elif is_matching_na(a.name, b.name):
+            if a_name == b_name:
+                return a_name
+            elif is_matching_na(a_name, b_name):
                 # e.g. both are np.nan
-                return a.name
+                return a_name
             else:
                 return None
-        except TypeError:
-            # pd.NA
-            if is_matching_na(a.name, b.name):
-                return a.name
-            return None
-        except ValueError:
-            # e.g. np.int64(1) vs (np.int64(1), np.int64(2))
+        except (TypeError, ValueError):
+            # pd.NA, or np.int64(1) vs (np.int64(1), np.int64(2))
+            if is_matching_na(a_name, b_name):
+                return a_name
             return None
     elif a_has:
-        return a.name
+        return a_name
     elif b_has:
-        return b.name
+        return b_name
     return None
