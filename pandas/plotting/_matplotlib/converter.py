@@ -88,7 +88,7 @@ def register_pandas_matplotlib_converters(func: F) -> F:
         with pandas_converters():
             return func(*args, **kwargs)
 
-    return cast(F, wrapper)
+    return cast("F", wrapper)
 
 
 @contextlib.contextmanager
@@ -465,22 +465,22 @@ def _get_default_annual_spacing(nyears) -> tuple[int, int]:
     """
     Returns a default spacing between consecutive ticks for annual data.
     """
+    # Fast path: use single return for logic branches
     if nyears < 11:
-        (min_spacing, maj_spacing) = (1, 1)
-    elif nyears < 20:
-        (min_spacing, maj_spacing) = (1, 2)
-    elif nyears < 50:
-        (min_spacing, maj_spacing) = (1, 5)
-    elif nyears < 100:
-        (min_spacing, maj_spacing) = (5, 10)
-    elif nyears < 200:
-        (min_spacing, maj_spacing) = (5, 25)
-    elif nyears < 600:
-        (min_spacing, maj_spacing) = (10, 50)
-    else:
-        factor = nyears // 1000 + 1
-        (min_spacing, maj_spacing) = (factor * 20, factor * 100)
-    return (min_spacing, maj_spacing)
+        return (1, 1)
+    if nyears < 20:
+        return (1, 2)
+    if nyears < 50:
+        return (1, 5)
+    if nyears < 100:
+        return (5, 10)
+    if nyears < 200:
+        return (5, 25)
+    if nyears < 600:
+        return (10, 50)
+    # For very large number of years
+    factor = nyears // 1000 + 1
+    return (factor * 20, factor * 100)
 
 
 def _period_break(dates: PeriodIndex, period: str) -> npt.NDArray[np.intp]:
@@ -512,12 +512,13 @@ def has_level_label(label_flags: npt.NDArray[np.intp], vmin: float) -> bool:
     if the minimum view limit is not an exact integer, then the first tick
     label won't be shown, so we must adjust for that.
     """
-    if label_flags.size == 0 or (
-        label_flags.size == 1 and label_flags[0] == 0 and vmin % 1 > 0.0
-    ):
+    # Faster evaluation by flattening the logic
+    size = label_flags.size
+    if size == 0:
         return False
-    else:
-        return True
+    if size == 1 and label_flags[0] == 0 and vmin % 1 > 0.0:
+        return False
+    return True
 
 
 def _get_periods_per_ymd(freq: BaseOffset) -> tuple[int, int, int]:
@@ -525,35 +526,27 @@ def _get_periods_per_ymd(freq: BaseOffset) -> tuple[int, int, int]:
     dtype_code = freq._period_dtype_code  # type: ignore[attr-defined]
     freq_group = FreqGroup.from_period_dtype_code(dtype_code)
 
-    ppd = -1  # placeholder for above-day freqs
-
+    # Minimize repeated computations in branches.
     if dtype_code >= FreqGroup.FR_HR.value:  # pyright: ignore[reportAttributeAccessIssue]
-        # error: "BaseOffset" has no attribute "_creso"
         ppd = periods_per_day(freq._creso)  # type: ignore[attr-defined]
         ppm = 28 * ppd
         ppy = 365 * ppd
-    elif freq_group == FreqGroup.FR_BUS:
-        ppm = 19
-        ppy = 261
-    elif freq_group == FreqGroup.FR_DAY:
-        ppm = 28
-        ppy = 365
-    elif freq_group == FreqGroup.FR_WK:
-        ppm = 3
-        ppy = 52
-    elif freq_group == FreqGroup.FR_MTH:
-        ppm = 1
-        ppy = 12
-    elif freq_group == FreqGroup.FR_QTR:
-        ppm = -1  # placerholder
-        ppy = 4
-    elif freq_group == FreqGroup.FR_ANN:
-        ppm = -1  # placeholder
-        ppy = 1
-    else:
-        raise NotImplementedError(f"Unsupported frequency: {dtype_code}")
+        return ppd, ppm, ppy
 
-    return ppd, ppm, ppy
+    # Consolidate elif branches to avoid duplicate freq_group lookups.
+    if freq_group == FreqGroup.FR_BUS:
+        return -1, 19, 261
+    if freq_group == FreqGroup.FR_DAY:
+        return -1, 28, 365
+    if freq_group == FreqGroup.FR_WK:
+        return -1, 3, 52
+    if freq_group == FreqGroup.FR_MTH:
+        return -1, 1, 12
+    if freq_group == FreqGroup.FR_QTR:
+        return -1, -1, 4  # placeholder for ppm
+    if freq_group == FreqGroup.FR_ANN:
+        return -1, -1, 1
+    raise NotImplementedError(f"Unsupported frequency: {dtype_code}")
 
 
 @functools.cache
@@ -761,69 +754,71 @@ def _monthly_finder(vmin: float, vmax: float, freq: BaseOffset) -> np.ndarray:
     _, _, periodsperyear = _get_periods_per_ymd(freq)
 
     vmin_orig = vmin
-    (vmin, vmax) = (int(vmin), int(vmax))
+    vmin = int(vmin)
+    vmax = int(vmax)
     span = vmax - vmin + 1
 
-    # Initialize the output
+    # Preallocate output and setup slices efficiently
     info = np.zeros(
         span, dtype=[("val", int), ("maj", bool), ("min", bool), ("fmt", "|S8")]
     )
     info["val"] = np.arange(vmin, vmax + 1)
     dates_ = info["val"]
-    info["fmt"] = ""
-    year_start = (dates_ % 12 == 0).nonzero()[0]
+    info["fmt"] = b""
+    year_start = np.flatnonzero(dates_ % 12 == 0)
     info_maj = info["maj"]
     info_fmt = info["fmt"]
 
+    # The main branching logic
     if span <= 1.15 * periodsperyear:
         info_maj[year_start] = True
         info["min"] = True
 
-        info_fmt[:] = "%b"
-        info_fmt[year_start] = "%b\n%Y"
+        info_fmt[:] = b"%b"
+        info_fmt[year_start] = b"%b\n%Y"
 
         if not has_level_label(year_start, vmin_orig):
-            if dates_.size > 1:
-                idx = 1
-            else:
-                idx = 0
-            info_fmt[idx] = "%b\n%Y"
+            idx = 1 if dates_.size > 1 else 0
+            info_fmt[idx] = b"%b\n%Y"
 
     elif span <= 2.5 * periodsperyear:
-        quarter_start = (dates_ % 3 == 0).nonzero()
+        quarter_start = np.flatnonzero(dates_ % 3 == 0)
         info_maj[year_start] = True
-        # TODO: Check the following : is it really info['fmt'] ?
-        #  2023-09-15 this is reached in test_finder_monthly
         info["fmt"][quarter_start] = True
         info["min"] = True
 
-        info_fmt[quarter_start] = "%b"
-        info_fmt[year_start] = "%b\n%Y"
+        info_fmt[quarter_start] = b"%b"
+        info_fmt[year_start] = b"%b\n%Y"
 
     elif span <= 4 * periodsperyear:
         info_maj[year_start] = True
         info["min"] = True
 
-        jan_or_jul = (dates_ % 12 == 0) | (dates_ % 12 == 6)
-        info_fmt[jan_or_jul] = "%b"
-        info_fmt[year_start] = "%b\n%Y"
+        jan_or_jul = np.flatnonzero((dates_ % 12 == 0) | (dates_ % 12 == 6))
+        info_fmt[jan_or_jul] = b"%b"
+        info_fmt[year_start] = b"%b\n%Y"
 
     elif span <= 11 * periodsperyear:
-        quarter_start = (dates_ % 3 == 0).nonzero()
+        quarter_start = np.flatnonzero(dates_ % 3 == 0)
         info_maj[year_start] = True
         info["min"][quarter_start] = True
 
-        info_fmt[year_start] = "%Y"
+        info_fmt[year_start] = b"%Y"
 
     else:
         nyears = span / periodsperyear
-        (min_anndef, maj_anndef) = _get_default_annual_spacing(nyears)
+        min_anndef, maj_anndef = _get_default_annual_spacing(nyears)
         years = dates_[year_start] // 12 + 1
-        major_idx = year_start[(years % maj_anndef == 0)]
-        info_maj[major_idx] = True
-        info["min"][year_start[(years % min_anndef == 0)]] = True
+        # Avoid Python interpreter loops by using numpy boolean indexing
+        major_mask = years % maj_anndef == 0
+        minor_mask = years % min_anndef == 0
+        major_idx = year_start[major_mask]
+        minor_idx = year_start[minor_mask]
 
-        info_fmt[major_idx] = "%Y"
+        info_maj[major_idx] = True
+        info["min"][minor_idx] = True
+
+        info_fmt[major_idx] = b"%Y"
 
     return info
 
