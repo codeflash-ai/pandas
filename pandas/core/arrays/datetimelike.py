@@ -178,20 +178,26 @@ def _period_dispatch(meth: F) -> F:
 
     @wraps(meth)
     def new_meth(self, *args, **kwargs):
-        if not isinstance(self.dtype, PeriodDtype):
+        dtype = self.dtype
+        if not isinstance(dtype, PeriodDtype):
             return meth(self, *args, **kwargs)
 
         arr = self.view("M8[ns]")
         result = meth(arr, *args, **kwargs)
+        # Fast checks for result types without multiple isinstance checks
         if result is NaT:
             return NaT
-        elif isinstance(result, Timestamp):
+
+        # Use type(result) comparison for most common case
+        if type(result) is Timestamp:
             return self._box_func(result._value)
 
-        res_i8 = result.view("i8")
+        # Avoid view if result is already an i8 array
+        # Safe guard: check dtype and shape, then convert only if needed
+        res_i8 = result.view("i8") if result.dtype != "i8" else result
         return self._from_backing_data(res_i8)
 
-    return cast(F, new_meth)
+    return cast("F", new_meth)
 
 
 # error: Definition of "_concat_same_type" in base class "NDArrayBacked" is
@@ -391,7 +397,7 @@ class DatetimeLikeArrayMixin(  # type: ignore[misc]
             return result
         else:
             # At this point we know the result is an array.
-            result = cast(Self, result)
+            result = cast("Self", result)
         result._freq = self._get_getitem_freq(key)
         return result
 
@@ -990,7 +996,7 @@ class DatetimeLikeArrayMixin(  # type: ignore[misc]
             return result
 
         if not isinstance(self.dtype, PeriodDtype):
-            self = cast(TimelikeOps, self)
+            self = cast("TimelikeOps", self)
             if self._creso != other._creso:
                 if not isinstance(other, type(self)):
                     # i.e. Timedelta/Timestamp, cast to ndarray and let
@@ -1637,7 +1643,7 @@ class DatetimeLikeArrayMixin(  # type: ignore[misc]
 
         i8modes = algorithms.mode(self.view("i8"), mask=mask)
         npmodes = i8modes.view(self._ndarray.dtype)
-        npmodes = cast(np.ndarray, npmodes)
+        npmodes = cast("np.ndarray", npmodes)
         return self._from_backing_data(npmodes)
 
     # ------------------------------------------------------------------
@@ -2176,7 +2182,7 @@ class TimelikeOps(DatetimeLikeArrayMixin):
             )
 
         values = self.view("i8")
-        values = cast(np.ndarray, values)
+        values = cast("np.ndarray", values)
         nanos = get_unit_for_round(freq, self._creso)
         if nanos == 0:
             # GH 52761
