@@ -7,11 +7,7 @@ These should not depend on core.internals.
 
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    cast,
-    overload,
-)
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from numpy import ma
@@ -343,7 +339,7 @@ def array(
                 return result.copy()
             return result
 
-        data = cast(np.ndarray, data)
+        data = cast("np.ndarray", data)
         result = ensure_wrapped_if_datetimelike(data)
         if result is not data:
             result = cast("DatetimeArray | TimedeltaArray", result)
@@ -410,16 +406,120 @@ _typs = frozenset(
 )
 
 
-@overload
 def extract_array(
     obj: Series | Index, extract_numpy: bool = ..., extract_range: bool = ...
-) -> ArrayLike: ...
+) -> ArrayLike:
+    """
+    Extract the ndarray or ExtensionArray from a Series or Index.
+
+    For all other types, `obj` is just returned as is.
+
+    Parameters
+    ----------
+    obj : object
+        For Series / Index, the underlying ExtensionArray is unboxed.
+
+    extract_numpy : bool, default False
+        Whether to extract the ndarray from a NumpyExtensionArray.
+
+    extract_range : bool, default False
+        If we have a RangeIndex, return range._values if True
+        (which is a materialized integer ndarray), otherwise return unchanged.
+
+    Returns
+    -------
+    arr : object
+
+    Examples
+    --------
+    >>> extract_array(pd.Series(["a", "b", "c"], dtype="category"))
+    ['a', 'b', 'c']
+    Categories (3, object): ['a', 'b', 'c']
+
+    Other objects like lists, arrays, and DataFrames are just passed through.
+
+    >>> extract_array([1, 2, 3])
+    [1, 2, 3]
+
+    For an ndarray-backed Series / Index the ndarray is returned.
+
+    >>> extract_array(pd.Series([1, 2, 3]))
+    array([1, 2, 3])
+
+    To extract all the way down to the ndarray, pass ``extract_numpy=True``.
+
+    >>> extract_array(pd.Series([1, 2, 3]), extract_numpy=True)
+    array([1, 2, 3])
+    """
+    typ = getattr(obj, "_typ", None)
+    if typ in _typs:
+        if typ == "rangeindex":
+            if extract_range:
+                return obj._values  # type: ignore[attr-defined]
+            return obj
+        return obj._values  # type: ignore[attr-defined]
+    elif extract_numpy and typ == "npy_extension":
+        return obj.to_numpy()  # type: ignore[attr-defined]
+
+    return obj
 
 
-@overload
 def extract_array(
     obj: T, extract_numpy: bool = ..., extract_range: bool = ...
-) -> T | ArrayLike: ...
+) -> T | ArrayLike:
+    """
+    Extract the ndarray or ExtensionArray from a Series or Index.
+
+    For all other types, `obj` is just returned as is.
+
+    Parameters
+    ----------
+    obj : object
+        For Series / Index, the underlying ExtensionArray is unboxed.
+
+    extract_numpy : bool, default False
+        Whether to extract the ndarray from a NumpyExtensionArray.
+
+    extract_range : bool, default False
+        If we have a RangeIndex, return range._values if True
+        (which is a materialized integer ndarray), otherwise return unchanged.
+
+    Returns
+    -------
+    arr : object
+
+    Examples
+    --------
+    >>> extract_array(pd.Series(["a", "b", "c"], dtype="category"))
+    ['a', 'b', 'c']
+    Categories (3, object): ['a', 'b', 'c']
+
+    Other objects like lists, arrays, and DataFrames are just passed through.
+
+    >>> extract_array([1, 2, 3])
+    [1, 2, 3]
+
+    For an ndarray-backed Series / Index the ndarray is returned.
+
+    >>> extract_array(pd.Series([1, 2, 3]))
+    array([1, 2, 3])
+
+    To extract all the way down to the ndarray, pass ``extract_numpy=True``.
+
+    >>> extract_array(pd.Series([1, 2, 3]), extract_numpy=True)
+    array([1, 2, 3])
+    """
+    typ = getattr(obj, "_typ", None)
+    if typ in _typs:
+        if typ == "rangeindex":
+            if extract_range:
+                return obj._values  # type: ignore[attr-defined]
+            return obj
+        return obj._values  # type: ignore[attr-defined]
+    elif extract_numpy and typ == "npy_extension":
+        return obj.to_numpy()  # type: ignore[attr-defined]
+
+    return obj
 
 
 def extract_array(
@@ -469,19 +569,12 @@ def extract_array(
     """
     typ = getattr(obj, "_typ", None)
     if typ in _typs:
-        # i.e. isinstance(obj, (ABCIndex, ABCSeries))
         if typ == "rangeindex":
             if extract_range:
-                # error: "T" has no attribute "_values"
                 return obj._values  # type: ignore[attr-defined]
             return obj
-
-        # error: "T" has no attribute "_values"
         return obj._values  # type: ignore[attr-defined]
-
     elif extract_numpy and typ == "npy_extension":
-        # i.e. isinstance(obj, ABCNumpyExtensionArray)
-        # error: "T" has no attribute "to_numpy"
         return obj.to_numpy()  # type: ignore[attr-defined]
 
     return obj
@@ -514,7 +607,7 @@ def sanitize_masked_array(data: ma.MaskedArray) -> np.ndarray:
     mask = ma.getmaskarray(data)
     if mask.any():
         dtype, fill_value = maybe_promote(data.dtype, np.nan)
-        dtype = cast(np.dtype, dtype)
+        dtype = cast("np.dtype", dtype)
         data = ma.asarray(data.astype(dtype, copy=True))
         data.soften_mask()  # set hardmask False if it was True
         data[mask] = fill_value
@@ -610,6 +703,21 @@ def sanitize_array(
             elif data.dtype.kind == "U" and using_string_dtype():
                 from pandas.core.arrays.string_ import StringDtype
 
+                # Move singleton for performance (was being declared every function call)
+                _typs: frozenset[str] = frozenset(
+                    {
+                        "index",
+                        "rangeindex",
+                        "multiindex",
+                        "datetimeindex",
+                        "timedeltaindex",
+                        "periodindex",
+                        "categoricalindex",
+                        "intervalindex",
+                        "series",
+                    }
+                )
+
                 dtype = StringDtype(na_value=np.nan)
                 subarr = dtype.construct_array_type()._from_sequence(data, dtype=dtype)
 
@@ -652,14 +760,14 @@ def sanitize_array(
         else:
             subarr = maybe_convert_platform(data)
             if subarr.dtype == object:
-                subarr = cast(np.ndarray, subarr)
+                subarr = cast("np.ndarray", subarr)
                 subarr = maybe_infer_to_datetimelike(subarr)
 
     subarr = _sanitize_ndim(subarr, data, dtype, index, allow_2d=allow_2d)
 
     if isinstance(subarr, np.ndarray):
         # at this point we should have dtype be None or subarr.dtype == dtype
-        dtype = cast(np.dtype, dtype)
+        dtype = cast("np.dtype", dtype)
         subarr = _sanitize_str_dtypes(subarr, data, dtype, copy)
 
     return subarr
@@ -796,7 +904,7 @@ def _try_cast(
     elif dtype.kind == "U":
         # TODO: test cases with arr.dtype.kind in "mM"
         if is_ndarray:
-            arr = cast(np.ndarray, arr)
+            arr = cast("np.ndarray", arr)
             shape = arr.shape
             if arr.ndim > 1:
                 arr = arr.ravel()
@@ -808,7 +916,7 @@ def _try_cast(
 
     elif dtype.kind in "mM":
         if is_ndarray:
-            arr = cast(np.ndarray, arr)
+            arr = cast("np.ndarray", arr)
             if arr.ndim == 2 and arr.shape[1] == 1:
                 # GH#60081: DataFrame Constructor converts 1D data to array of
                 # shape (N, 1), but maybe_cast_to_datetime assumes 1D input
