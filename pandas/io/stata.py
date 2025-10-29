@@ -553,68 +553,115 @@ def _cast_to_stata_types(data: DataFrame) -> DataFrame:
     float32_max = struct.unpack("<f", b"\xff\xff\xff\x7e")[0]
     float64_max = struct.unpack("<d", b"\xff\xff\xff\xff\xff\xff\xdf\x7f")[0]
 
+    # Loop through columns, optimize dtype/value checks
     for col in data:
-        # Cast from unsupported types to supported types
-        is_nullable_int = (
-            isinstance(data[col].dtype, ExtensionDtype)
-            and data[col].dtype.kind in "iub"
-        )
-        # We need to find orig_missing before altering data below
-        orig_missing = data[col].isna()
-        if is_nullable_int:
-            fv = 0 if data[col].dtype.kind in "iu" else False
-            # Replace with NumPy-compatible column
-            data[col] = data[col].fillna(fv).astype(data[col].dtype.numpy_dtype)
-        elif isinstance(data[col].dtype, ExtensionDtype):
-            if getattr(data[col].dtype, "numpy_dtype", None) is not None:
-                data[col] = data[col].astype(data[col].dtype.numpy_dtype)
-            elif is_string_dtype(data[col].dtype):
-                # TODO could avoid converting string dtype to object here,
-                # but handle string dtype in _encode_strings
-                data[col] = data[col].astype("object")
-                # generate_table checks for None values
-                data.loc[data[col].isna(), col] = None
+        col_data = data[col]
+        dtype = col_data.dtype
+        is_ext_dtype = isinstance(dtype, ExtensionDtype)
+        kind = getattr(dtype, "kind", None)
 
-        dtype = data[col].dtype
+        is_nullable_int = is_ext_dtype and kind in "iub"
+        orig_missing = None
+        if is_nullable_int:
+            orig_missing = col_data.isna()
+            fv = 0 if kind in "iu" else False
+            # Replace with numpy-compatible, only if needed
+            filled = col_data.fillna(fv)
+            if not filled.dtype == dtype.numpy_dtype:
+                data[col] = filled.astype(dtype.numpy_dtype)
+            else:
+                data[col] = filled
+            col_data = data[col]
+            dtype = col_data.dtype
+        elif is_ext_dtype:
+            numpy_dtype = getattr(dtype, "numpy_dtype", None)
+            if numpy_dtype is not None and not dtype == numpy_dtype:
+                data[col] = col_data.astype(numpy_dtype)
+                col_data = data[col]
+                dtype = col_data.dtype
+            elif is_string_dtype(dtype):
+                obj_mask = col_data.isna()
+                # Only mutate if needed
+                as_obj = col_data.astype("object")
+                data[col] = as_obj
+                data.loc[obj_mask, col] = None
+                col_data = data[col]
+                dtype = col_data.dtype
+
         empty_df = data.shape[0] == 0
+        # Secondary dtype-value conversion optimization
+        col_max = None
+        col_min = None
+        # Conversion step
         for c_data in conversion_data:
             if dtype == c_data[0]:
-                if empty_df or data[col].max() <= np.iinfo(c_data[1]).max:
+                if not empty_df:
+                    col_max = col_data.max()
+                    # Avoid re-calc for col_min below
+                    if c_data[2] in (np.int16, np.int32, np.int64, np.float64):
+                        col_min = col_data.min()
+                if empty_df or (
+                    col_max is not None and col_max <= np.iinfo(c_data[1]).max
+                ):
                     dtype = c_data[1]
                 else:
                     dtype = c_data[2]
                 if c_data[2] == np.int64:  # Warn if necessary
-                    if data[col].max() >= 2**53:
+                    if col_max is not None and col_max >= 2**53:
                         ws = precision_loss_doc.format("uint64", "float64")
-
-                data[col] = data[col].astype(dtype)
-
-        # Check values and upcast if necessary
+                data[col] = col_data.astype(dtype)
+                col_data = data[col]
+                dtype = col_data.dtype
 
         if dtype == np.int8 and not empty_df:
-            if data[col].max() > 100 or data[col].min() < -127:
-                data[col] = data[col].astype(np.int16)
+            if col_max is None:
+                col_max = col_data.max()
+            if col_min is None:
+                col_min = col_data.min()
+            if col_max > 100 or col_min < -127:
+                data[col] = col_data.astype(np.int16)
+                col_data = data[col]
+                dtype = col_data.dtype
         elif dtype == np.int16 and not empty_df:
-            if data[col].max() > 32740 or data[col].min() < -32767:
-                data[col] = data[col].astype(np.int32)
+            if col_max is None:
+                col_max = col_data.max()
+            if col_min is None:
+                col_min = col_data.min()
+            if col_max > 32740 or col_min < -32767:
+                data[col] = col_data.astype(np.int32)
+                col_data = data[col]
+                dtype = col_data.dtype
         elif dtype == np.int64:
-            if empty_df or (
-                data[col].max() <= 2147483620 and data[col].min() >= -2147483647
-            ):
-                data[col] = data[col].astype(np.int32)
+            if empty_df:
+                data[col] = col_data.astype(np.int32)
+                col_data = data[col]
+                dtype = col_data.dtype
             else:
-                data[col] = data[col].astype(np.float64)
-                if data[col].max() >= 2**53 or data[col].min() <= -(2**53):
-                    ws = precision_loss_doc.format("int64", "float64")
+                if col_max is None:
+                    col_max = col_data.max()
+                if col_min is None:
+                    col_min = col_data.min()
+                if col_max <= 2147483620 and col_min >= -2147483647:
+                    data[col] = col_data.astype(np.int32)
+                    col_data = data[col]
+                    dtype = col_data.dtype
+                else:
+                    data[col] = col_data.astype(np.float64)
+                    col_data = data[col]
+                    dtype = col_data.dtype
+                    if col_max >= 2**53 or col_min <= -(2**53):
+                        ws = precision_loss_doc.format("int64", "float64")
         elif dtype in (np.float32, np.float64):
-            if np.isinf(data[col]).any():
+            if np.isinf(col_data).any():
                 raise ValueError(
                     f"Column {col} contains infinity or -infinity"
                     "which is outside the range supported by Stata."
                 )
-            value = data[col].max()
+            value = col_data.max()
             if dtype == np.float32 and value > float32_max:
-                data[col] = data[col].astype(np.float64)
+                data[col] = col_data.astype(np.float64)
+                col_data = data[col]
+                dtype = col_data.dtype
             elif dtype == np.float64:
                 if value > float64_max:
                     raise ValueError(
@@ -622,7 +669,7 @@ def _cast_to_stata_types(data: DataFrame) -> DataFrame:
                         f"supported by Stata ({float64_max})"
                     )
         if is_nullable_int:
-            if orig_missing.any():
+            if orig_missing is not None and orig_missing.any():
                 # Replace missing by Stata sentinel value
                 sentinel = StataMissingValue.BASE_MISSING_VALUES[data[col].dtype.name]
                 data.loc[orig_missing, col] = sentinel
@@ -1503,7 +1550,7 @@ class StataReader(StataParser, abc.Iterator):
         dtypes = []  # Convert struct data types to numpy data type
         for i, typ in enumerate(self._typlist):
             if typ in self.NUMPY_TYPE_MAP:
-                typ = cast(str, typ)  # only strs in NUMPY_TYPE_MAP
+                typ = cast("str", typ)  # only strs in NUMPY_TYPE_MAP
                 dtypes.append((f"s{i}", f"{self._byteorder}{self.NUMPY_TYPE_MAP[typ]}"))
             else:
                 dtypes.append((f"s{i}", f"S{typ}"))
@@ -1832,13 +1879,13 @@ the string values returned are correct."""
                 if fmt not in self.OLD_VALID_RANGE:
                     continue
 
-                fmt = cast(str, fmt)  # only strs in OLD_VALID_RANGE
+                fmt = cast("str", fmt)  # only strs in OLD_VALID_RANGE
                 nmin, nmax = self.OLD_VALID_RANGE[fmt]
             else:
                 if fmt not in self.VALID_RANGE:
                     continue
 
-                fmt = cast(str, fmt)  # only strs in VALID_RANGE
+                fmt = cast("str", fmt)  # only strs in VALID_RANGE
                 nmin, nmax = self.VALID_RANGE[fmt]
             series = data.iloc[:, i]
 
@@ -2867,7 +2914,7 @@ supported types."""
         # ds_format - just use 114
         self._write_bytes(struct.pack("b", 114))
         # byteorder
-        self._write(byteorder == ">" and "\x01" or "\x02")
+        self._write((byteorder == ">" and "\x01") or "\x02")
         # filetype
         self._write("\x01")
         # unused
@@ -3413,7 +3460,7 @@ class StataWriter117(StataWriter):
         # ds_format - 117
         bio.write(self._tag(bytes(str(self._dta_version), "utf-8"), "release"))
         # byteorder
-        bio.write(self._tag(byteorder == ">" and "MSF" or "LSF", "byteorder"))
+        bio.write(self._tag((byteorder == ">" and "MSF") or "LSF", "byteorder"))
         # number of vars, 2 bytes in 117 and 118, 4 byte in 119
         nvar_type = "H" if self._dta_version <= 118 else "I"
         bio.write(self._tag(struct.pack(byteorder + nvar_type, self.nvar), "K"))

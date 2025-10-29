@@ -635,11 +635,35 @@ def is_string_dtype(arr_or_dtype) -> bool:
     >>> is_string_dtype(pd.Series([1, 2], dtype=object))
     False
     """
-    if hasattr(arr_or_dtype, "dtype") and _get_dtype(arr_or_dtype).kind == "O":
-        return is_all_strings(arr_or_dtype)
+    # Fast-path for common cases
+    if hasattr(arr_or_dtype, "dtype"):
+        dtype = _get_dtype(arr_or_dtype)
+        kind = dtype.kind
+        if kind == "O":
+            return is_all_strings(arr_or_dtype)
+        if dtype in (str, object) or (
+            hasattr(dtype, "name") and dtype.name in ("string", "object")
+        ):
+            return True
+        if dtype == "string":
+            return True
 
+    # For string, object, or related dtypes (skip closure creation)
+    if arr_or_dtype in (str, object) or (
+        hasattr(arr_or_dtype, "name") and arr_or_dtype.name in ("string", "object")
+    ):
+        return True
+    try:
+        if arr_or_dtype == "string":
+            return True
+    except TypeError:
+        pass
+
+    # Fallback to _is_dtype for complex cases. Directly use tuple membership in the condition
     def condition(dtype) -> bool:
-        if is_string_or_object_np_dtype(dtype):
+        if dtype in (str, object) or (
+            hasattr(dtype, "name") and dtype.name in ("string", "object")
+        ):
             return True
         try:
             return dtype == "string"
@@ -1889,13 +1913,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1965,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
