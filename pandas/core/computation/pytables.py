@@ -47,6 +47,8 @@ if TYPE_CHECKING:
         npt,
     )
 
+_operations = None
+
 
 class PyTablesScope(_scope.Scope):
     __slots__ = ("queryables",)
@@ -408,11 +410,12 @@ class UnaryOp(ops.UnaryOp):
         operand = operand.prune(klass)
 
         if operand is not None and (
-            issubclass(klass, ConditionBinOp)
-            and operand.condition is not None
-            or not issubclass(klass, ConditionBinOp)
-            and issubclass(klass, FilterBinOp)
-            and operand.filter is not None
+            (issubclass(klass, ConditionBinOp) and operand.condition is not None)
+            or (
+                not issubclass(klass, ConditionBinOp)
+                and issubclass(klass, FilterBinOp)
+                and operand.filter is not None
+            )
         ):
             return operand.invert()
         return None
@@ -657,9 +660,13 @@ class TermValue:
 
 def maybe_expression(s) -> bool:
     """loose checking if s is a pytables-acceptable expression"""
+    global _operations
     if not isinstance(s, str):
         return False
-    operations = PyTablesExprVisitor.binary_ops + PyTablesExprVisitor.unary_ops + ("=",)
-
+    # Delay creation of operations tuple until first function call
+    if _operations is None:
+        _operations = (
+            PyTablesExprVisitor.binary_ops + PyTablesExprVisitor.unary_ops + ("=",)
+        )
     # make sure we have an op at least
-    return any(op in s for op in operations)
+    return any(op in s for op in _operations)
