@@ -88,7 +88,7 @@ def register_pandas_matplotlib_converters(func: F) -> F:
         with pandas_converters():
             return func(*args, **kwargs)
 
-    return cast(F, wrapper)
+    return cast("F", wrapper)
 
 
 @contextlib.contextmanager
@@ -466,21 +466,20 @@ def _get_default_annual_spacing(nyears) -> tuple[int, int]:
     Returns a default spacing between consecutive ticks for annual data.
     """
     if nyears < 11:
-        (min_spacing, maj_spacing) = (1, 1)
+        return (1, 1)
     elif nyears < 20:
-        (min_spacing, maj_spacing) = (1, 2)
+        return (1, 2)
     elif nyears < 50:
-        (min_spacing, maj_spacing) = (1, 5)
+        return (1, 5)
     elif nyears < 100:
-        (min_spacing, maj_spacing) = (5, 10)
+        return (5, 10)
     elif nyears < 200:
-        (min_spacing, maj_spacing) = (5, 25)
+        return (5, 25)
     elif nyears < 600:
-        (min_spacing, maj_spacing) = (10, 50)
+        return (10, 50)
     else:
         factor = nyears // 1000 + 1
-        (min_spacing, maj_spacing) = (factor * 20, factor * 100)
-    return (min_spacing, maj_spacing)
+        return (factor * 20, factor * 100)
 
 
 def _period_break(dates: PeriodIndex, period: str) -> npt.NDArray[np.intp]:
@@ -879,22 +878,27 @@ def _quarterly_finder(vmin: float, vmax: float, freq: BaseOffset) -> np.ndarray:
 @functools.cache
 def _annual_finder(vmin: float, vmax: float, freq: BaseOffset) -> np.ndarray:
     # Note: small difference here vs other finders in adding 1 to vmax
-    (vmin, vmax) = (int(vmin), int(vmax + 1))
+    vmin = int(vmin)
+    vmax = int(vmax + 1)
     span = vmax - vmin + 1
 
+    # Precompute arange once and use views for slices wherever possible
+    dates_ = np.arange(vmin, vmax + 1)
     info = np.zeros(
         span, dtype=[("val", int), ("maj", bool), ("min", bool), ("fmt", "|S8")]
     )
-    info["val"] = np.arange(vmin, vmax + 1)
-    info["fmt"] = ""
-    dates_ = info["val"]
+    info["val"] = dates_
+    # "fmt" field pre-fills as empty bytes, so direct assignment unnecessary
 
-    (min_anndef, maj_anndef) = _get_default_annual_spacing(span)
+    min_anndef, maj_anndef = _get_default_annual_spacing(span)
+
+    # Use numpy vectorization for fast assignment
     major_idx = dates_ % maj_anndef == 0
     minor_idx = dates_ % min_anndef == 0
-    info["maj"][major_idx] = True
-    info["min"][minor_idx] = True
-    info["fmt"][major_idx] = "%Y"
+    # As 'major_idx' and 'minor_idx' are numpy bool arrays, assignment with them is fast
+    info["maj"] = major_idx
+    info["min"] = minor_idx
+    info["fmt"][major_idx] = b"%Y"
 
     return info
 
