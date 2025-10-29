@@ -516,8 +516,7 @@ class Grouping:
             ):
                 grper = pprint_thing(grouping_vector)
                 errmsg = (
-                    "Grouper result violates len(labels) == "
-                    f"len(data)\nresult: {grper}"
+                    f"Grouper result violates len(labels) == len(data)\nresult: {grper}"
                 )
                 raise AssertionError(errmsg)
 
@@ -913,7 +912,13 @@ def get_grouper(
 
 
 def _is_label_like(val) -> bool:
-    return isinstance(val, (str, tuple)) or (val is not None and is_scalar(val))
+    if isinstance(val, str):
+        return True
+    if isinstance(val, tuple):
+        return True
+    if val is None:
+        return False
+    return is_scalar(val)
 
 
 def _convert_grouper(axis: Index, grouper):
