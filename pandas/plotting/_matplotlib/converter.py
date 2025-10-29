@@ -88,7 +88,7 @@ def register_pandas_matplotlib_converters(func: F) -> F:
         with pandas_converters():
             return func(*args, **kwargs)
 
-    return cast(F, wrapper)
+    return cast("F", wrapper)
 
 
 @contextlib.contextmanager
@@ -466,21 +466,20 @@ def _get_default_annual_spacing(nyears) -> tuple[int, int]:
     Returns a default spacing between consecutive ticks for annual data.
     """
     if nyears < 11:
-        (min_spacing, maj_spacing) = (1, 1)
+        return (1, 1)
     elif nyears < 20:
-        (min_spacing, maj_spacing) = (1, 2)
+        return (1, 2)
     elif nyears < 50:
-        (min_spacing, maj_spacing) = (1, 5)
+        return (1, 5)
     elif nyears < 100:
-        (min_spacing, maj_spacing) = (5, 10)
+        return (5, 10)
     elif nyears < 200:
-        (min_spacing, maj_spacing) = (5, 25)
+        return (5, 25)
     elif nyears < 600:
-        (min_spacing, maj_spacing) = (10, 50)
+        return (10, 50)
     else:
         factor = nyears // 1000 + 1
-        (min_spacing, maj_spacing) = (factor * 20, factor * 100)
-    return (min_spacing, maj_spacing)
+        return (factor * 20, factor * 100)
 
 
 def _period_break(dates: PeriodIndex, period: str) -> npt.NDArray[np.intp]:
@@ -512,43 +511,45 @@ def has_level_label(label_flags: npt.NDArray[np.intp], vmin: float) -> bool:
     if the minimum view limit is not an exact integer, then the first tick
     label won't be shown, so we must adjust for that.
     """
-    if label_flags.size == 0 or (
-        label_flags.size == 1 and label_flags[0] == 0 and vmin % 1 > 0.0
-    ):
+    # Optimize logical condition by combining cases
+    size = label_flags.size
+    if size == 0 or (size == 1 and label_flags[0] == 0 and vmin % 1 > 0.0):
         return False
-    else:
-        return True
+    return True
 
 
 def _get_periods_per_ymd(freq: BaseOffset) -> tuple[int, int, int]:
-    # error: "BaseOffset" has no attribute "_period_dtype_code"
     dtype_code = freq._period_dtype_code  # type: ignore[attr-defined]
     freq_group = FreqGroup.from_period_dtype_code(dtype_code)
 
-    ppd = -1  # placeholder for above-day freqs
-
+    # Remove unnecessary initialization of ppd
     if dtype_code >= FreqGroup.FR_HR.value:  # pyright: ignore[reportAttributeAccessIssue]
-        # error: "BaseOffset" has no attribute "_creso"
         ppd = periods_per_day(freq._creso)  # type: ignore[attr-defined]
         ppm = 28 * ppd
         ppy = 365 * ppd
     elif freq_group == FreqGroup.FR_BUS:
+        ppd = -1
         ppm = 19
         ppy = 261
     elif freq_group == FreqGroup.FR_DAY:
+        ppd = -1
         ppm = 28
         ppy = 365
     elif freq_group == FreqGroup.FR_WK:
+        ppd = -1
         ppm = 3
         ppy = 52
     elif freq_group == FreqGroup.FR_MTH:
+        ppd = -1
         ppm = 1
         ppy = 12
     elif freq_group == FreqGroup.FR_QTR:
-        ppm = -1  # placerholder
+        ppd = -1
+        ppm = -1
         ppy = 4
     elif freq_group == FreqGroup.FR_ANN:
-        ppm = -1  # placeholder
+        ppd = -1
+        ppm = -1
         ppy = 1
     else:
         raise NotImplementedError(f"Unsupported frequency: {dtype_code}")
@@ -832,46 +833,54 @@ def _monthly_finder(vmin: float, vmax: float, freq: BaseOffset) -> np.ndarray:
 def _quarterly_finder(vmin: float, vmax: float, freq: BaseOffset) -> np.ndarray:
     _, _, periodsperyear = _get_periods_per_ymd(freq)
     vmin_orig = vmin
-    (vmin, vmax) = (int(vmin), int(vmax))
-    span = vmax - vmin + 1
+    vmin_i, vmax_i = int(vmin), int(vmax)
+    span = vmax_i - vmin_i + 1
 
+    # Use contiguous memory block for info array for performance
     info = np.zeros(
         span, dtype=[("val", int), ("maj", bool), ("min", bool), ("fmt", "|S8")]
     )
-    info["val"] = np.arange(vmin, vmax + 1)
-    info["fmt"] = ""
+    vals_arr = np.arange(vmin_i, vmax_i + 1)
+    info["val"] = vals_arr
+    # This sets all to "", which is already the default, no need to assign explicitly
+    # info["fmt"] = ""
+
     dates_ = info["val"]
     info_maj = info["maj"]
+    info_min = info["min"]
     info_fmt = info["fmt"]
-    year_start = (dates_ % 4 == 0).nonzero()[0]
+
+    # Optimize computing year_start nonzero indices (already using .nonzero(), so it's optimal)
+    year_start_idx = (dates_ % 4 == 0).nonzero()[0]
 
     if span <= 3.5 * periodsperyear:
-        info_maj[year_start] = True
-        info["min"] = True
+        # Vectorized assignment for all
+        info_maj[year_start_idx] = True
+        info_min[:] = True
 
-        info_fmt[:] = "Q%q"
-        info_fmt[year_start] = "Q%q\n%F"
-        if not has_level_label(year_start, vmin_orig):
-            if dates_.size > 1:
-                idx = 1
-            else:
-                idx = 0
-            info_fmt[idx] = "Q%q\n%F"
+        info_fmt[:] = b"Q%q"
+        info_fmt[year_start_idx] = b"Q%q\n%F"
+
+        if not has_level_label(year_start_idx, vmin_orig):
+            idx = 1 if dates_.size > 1 else 0
+            info_fmt[idx] = b"Q%q\n%F"
 
     elif span <= 11 * periodsperyear:
-        info_maj[year_start] = True
-        info["min"] = True
-        info_fmt[year_start] = "%F"
+        info_maj[year_start_idx] = True
+        info_min[:] = True
+        info_fmt[year_start_idx] = b"%F"
 
     else:
         # https://github.com/pandas-dev/pandas/pull/47602
-        years = dates_[year_start] // 4 + 1970
+        years = dates_[year_start_idx] // 4 + 1970
         nyears = span / periodsperyear
-        (min_anndef, maj_anndef) = _get_default_annual_spacing(nyears)
-        major_idx = year_start[(years % maj_anndef == 0)]
+        min_anndef, maj_anndef = _get_default_annual_spacing(nyears)
+        maj_mask = years % maj_anndef == 0
+        major_idx = year_start_idx[maj_mask]
         info_maj[major_idx] = True
-        info["min"][year_start[(years % min_anndef == 0)]] = True
-        info_fmt[major_idx] = "%F"
+        min_mask = years % min_anndef == 0
+        info_min[year_start_idx[min_mask]] = True
+        info_fmt[major_idx] = b"%F"
 
     return info
 
