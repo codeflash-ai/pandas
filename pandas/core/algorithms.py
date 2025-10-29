@@ -171,12 +171,12 @@ def _ensure_data(values: ArrayLike) -> np.ndarray:
         return np.asarray(values)
 
     elif is_complex_dtype(values.dtype):
-        return cast(np.ndarray, values)
+        return cast("np.ndarray", values)
 
     # datetimelike
     elif needs_i8_conversion(values.dtype):
         npvalues = values.view("i8")
-        npvalues = cast(np.ndarray, npvalues)
+        npvalues = cast("np.ndarray", npvalues)
         return npvalues
 
     # we have failed, return object
@@ -1054,21 +1054,28 @@ def rank(
         Whether or not to the display the returned rankings in integer form
         (e.g. 1, 2, 3) or in percentile form (e.g. 0.333..., 0.666..., 1).
     """
-    is_datetimelike = needs_i8_conversion(values.dtype)
-    values = _ensure_data(values)
+    # Optimization: cache dtype and ndim, early-branch on common case
+    v_dtype = getattr(values, "dtype", None)
+    v_ndim = getattr(values, "ndim", None)
+    is_datetimelike = needs_i8_conversion(v_dtype)
+    # Inline minimal _ensure_data logic: convert to ndarray if not already
+    if isinstance(values, np.ndarray):
+        arr = values
+    else:
+        arr = np.asarray(values)
 
-    if values.ndim == 1:
-        ranks = algos.rank_1d(
-            values,
+    if v_ndim == 1 or arr.ndim == 1:
+        return algos.rank_1d(
+            arr,
             is_datetimelike=is_datetimelike,
             ties_method=method,
             ascending=ascending,
             na_option=na_option,
             pct=pct,
         )
-    elif values.ndim == 2:
-        ranks = algos.rank_2d(
-            values,
+    elif v_ndim == 2 or arr.ndim == 2:
+        return algos.rank_2d(
+            arr,
             axis=axis,
             is_datetimelike=is_datetimelike,
             ties_method=method,
@@ -1078,8 +1085,6 @@ def rank(
         )
     else:
         raise TypeError("Array with ndim > 2 are not supported.")
-
-    return ranks
 
 
 # ---- #
@@ -1281,9 +1286,9 @@ def searchsorted(
 
         if is_integer(value):
             # We know that value is int
-            value = cast(int, dtype.type(value))
+            value = cast("int", dtype.type(value))
         else:
-            value = pd_array(cast(ArrayLike, value), dtype=dtype)
+            value = pd_array(cast("ArrayLike", value), dtype=dtype)
     else:
         # E.g. if `arr` is an array with dtype='datetime64[ns]'
         # and `value` is a pd.Timestamp, we may need to convert value

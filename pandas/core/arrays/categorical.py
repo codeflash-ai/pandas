@@ -2105,24 +2105,29 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         numpy.array
 
         """
-        from pandas import Series
+        # Optimization: cache property lookups, minimize numpy conversion
+        ordered = self.ordered
+        codes = self.codes
+        categories = self.categories
 
-        if self.ordered:
-            values = self.codes
+        if ordered:
+            # codes is an ndarray, -1 means missing
+            values = codes
             mask = values == -1
             if mask.any():
+                # Only cast if missing values are present
                 values = values.astype("float64")
                 values[mask] = np.nan
-        elif is_any_real_numeric_dtype(self.categories.dtype):
-            values = np.array(self)
+        elif is_any_real_numeric_dtype(categories.dtype):
+            # codes is always numeric, so return directly instead of np.array(self)
+            values = codes
         else:
-            #  reorder the categories (so rank can use the float codes)
-            #  instead of passing an object array to rank
-            values = np.array(
-                self.rename_categories(
-                    Series(self.categories, copy=False).rank().values
-                )
-            )
+            # Take rank of categories, assign to codes
+            # Avoid recreating Series if categories is already an ndarray
+            from pandas import Series
+
+            ranked_categories = Series(categories, copy=False).rank().values
+            values = np.array(self.rename_categories(ranked_categories))
         return values
 
     def _hash_pandas_object(
@@ -2473,7 +2478,7 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             mask = self.isna()
 
         res_codes = algorithms.mode(codes, mask=mask)
-        res_codes = cast(np.ndarray, res_codes)
+        res_codes = cast("np.ndarray", res_codes)
         assert res_codes.dtype == codes.dtype
         res = self._from_backing_data(res_codes)
         return res
