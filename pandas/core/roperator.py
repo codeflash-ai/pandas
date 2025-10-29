@@ -60,4 +60,4 @@ def ror_(left, right):
 
 
 def rxor(left, right):
-    return operator.xor(right, left)
+    return right ^ left
