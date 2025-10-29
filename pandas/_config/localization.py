@@ -75,14 +75,17 @@ def can_set_locale(lc: str, lc_var: int = locale.LC_ALL) -> bool:
     bool
         Whether the passed locale can be set
     """
+    # Avoid context manager overhead by using a try/finally directly
+    current_locale = locale.setlocale(lc_var)
     try:
-        with set_locale(lc, lc_var=lc_var):
-            pass
+        locale.setlocale(lc_var, lc)
+        normalized_code, normalized_encoding = locale.getlocale()
+        # Optionally skip normalization logic for a simple boolean check
     except (ValueError, locale.Error):
-        # horrible name for a Exception subclass
         return False
-    else:
-        return True
+    finally:
+        locale.setlocale(lc_var, current_locale)
+    return True
 
 
 def _valid_locales(locales: list[str] | str, normalize: bool) -> list[str]:
@@ -156,7 +159,9 @@ def get_locales(
         out_locales = []
         for x in split_raw_locales:
             try:
-                out_locales.append(str(x, encoding=cast(str, options.display.encoding)))
+                out_locales.append(
+                    str(x, encoding=cast("str", options.display.encoding))
+                )
             except UnicodeError:
                 # 'locale -a' is used to populated 'raw_locales' and on
                 # Redhat 7 Linux (and maybe others) prints locale names
