@@ -402,18 +402,20 @@ def render_pep440(pieces):
     Exceptions:
     1: no tags. git_describe was just HEX. 0+untagged.DISTANCE.gHEX[.dirty]
     """
-    if pieces["closest-tag"]:
-        rendered = pieces["closest-tag"]
-        if pieces["distance"] or pieces["dirty"]:
-            rendered += plus_or_dot(pieces)
-            rendered += f"{pieces['distance']}.g{pieces['short']}"
-            if pieces["dirty"]:
-                rendered += ".dirty"
+    distance = pieces["distance"]
+    short = pieces["short"]
+    dirty = pieces["dirty"]
+    tag = pieces["closest-tag"]
+
+    if tag:
+        if not distance and not dirty:
+            # Most common fast path
+            return tag
+        rendered = f"{tag}{plus_or_dot(pieces)}{distance}.g{short}" + (
+            ".dirty" if dirty else ""
+        )
     else:
-        # exception #1
-        rendered = f"0+untagged.{pieces['distance']}.g{pieces['short']}"
-        if pieces["dirty"]:
-            rendered += ".dirty"
+        rendered = f"0+untagged.{distance}.g{short}" + (".dirty" if dirty else "")
     return rendered
 
 
