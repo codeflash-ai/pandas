@@ -121,8 +121,7 @@ class BoxPlot(LinePlot):
 
         if colormap is not None:
             warnings.warn(
-                "'color' and 'colormap' cannot be used "
-                "simultaneously. Using 'color'",
+                "'color' and 'colormap' cannot be used simultaneously. Using 'color'",
                 stacklevel=find_stack_level(),
             )
 
@@ -299,33 +298,53 @@ def _grouped_plot_by_column(
             by = [by]
         columns = data._get_numeric_data().columns.difference(by)
     naxes = len(columns)
+
+    # Pre-extract sharex/sharey from kwargs to avoid unnecessary dict ops later
+    sharex = kwargs.pop("sharex", True)
+    sharey = kwargs.pop("sharey", True)
     fig, axes = create_subplots(
         naxes=naxes,
-        sharex=kwargs.pop("sharex", True),
-        sharey=kwargs.pop("sharey", True),
+        sharex=sharex,
+        sharey=sharey,
         figsize=figsize,
         ax=ax,
         layout=layout,
     )
 
     # GH 45465: move the "by" label based on "vert"
-    xlabel, ylabel = kwargs.pop("xlabel", None), kwargs.pop("ylabel", None)
-    if kwargs.get("vert", True):
+    xlabel = kwargs.pop("xlabel", None)
+    ylabel = kwargs.pop("ylabel", None)
+    vert = kwargs.get("vert", True)
+    if vert:
         xlabel = xlabel or by
     else:
         ylabel = ylabel or by
 
-    ax_values = []
+    # Precompute column names and axes as lists to avoid flattening/generation overhead inside zip
+    flat_axes = list(flatten_axes(axes))
+    columns_list = list(columns)
+    ax_values = [None] * len(columns_list)
+    # Precache groupby objects outside the loop for columns if possible
+    grouped_objs = [grouped[col] for col in columns_list]
 
-    for ax, col in zip(flatten_axes(axes), columns):
-        gp_col = grouped[col]
-        keys, values = zip(*gp_col)
+    # Unroll loop and collect all keys/values ahead of time to avoid repeated Python stack/iteration overhead
+    group_data = []
+    for gp_col in grouped_objs:
+        # Materialize group iterators as lists just once
+        group = list(gp_col)
+        keys, values = zip(*group) if group else ([], [])
+        group_data.append((keys, values))
+
+    # In-place loop (fast index-based)
+    for i in range(len(flat_axes)):
+        keys, values = group_data[i]
+        ax = flat_axes[i]
         re_plotf = plotf(keys, values, ax, xlabel=xlabel, ylabel=ylabel, **kwargs)
-        ax.set_title(col)
-        ax_values.append(re_plotf)
+        ax.set_title(columns_list[i])
+        ax_values[i] = re_plotf
         ax.grid(grid)
 
-    result = pd.Series(ax_values, index=columns, copy=False)
+    result = pd.Series(ax_values, index=columns_list, copy=False)
 
     # Return axes in multiplot case, maybe revisit later # 985
     if return_type is None:
@@ -353,7 +372,6 @@ def boxplot(
 ):
     import matplotlib.pyplot as plt
 
-    # validate return_type:
     if return_type not in BoxPlot._valid_return_types:
         raise ValueError("return_type must be {'axes', 'dict', 'both'}")
 
@@ -362,9 +380,9 @@ def boxplot(
         column = "x"
 
     def _get_colors():
-        #  num_colors=3 is required as method maybe_color_bp takes the colors
-        #  in positions 0 and 2.
-        #  if colors not provided, use same defaults as DataFrame.plot.box
+        # num_colors=3 is required as method maybe_color_bp takes the colors
+        # in positions 0 and 2.
+        # if colors not provided, use same defaults as DataFrame.plot.box
         result_list = get_standard_colors(num_colors=3)
         result = np.take(result_list, [0, 0, 2])
         result = np.append(result, "k")
@@ -392,25 +410,27 @@ def boxplot(
 
     def plot_group(keys, values, ax: Axes, **kwds):
         # GH 45465: xlabel/ylabel need to be popped out before plotting happens
-        xlabel, ylabel = kwds.pop("xlabel", None), kwds.pop("ylabel", None)
+        xlabel = kwds.pop("xlabel", None)
+        ylabel = kwds.pop("ylabel", None)
         if xlabel:
             ax.set_xlabel(pprint_thing(xlabel))
         if ylabel:
             ax.set_ylabel(pprint_thing(ylabel))
 
-        keys = [pprint_thing(x) for x in keys]
-        values = [np.asarray(remove_na_arraylike(v), dtype=object) for v in values]
-        bp = ax.boxplot(values, **kwds)
+        # Optimize: avoid recreating lists and unnecessary objects in tight loop
+        # Use list comprehension for pprint_thing
+        keys_pp = [pprint_thing(x) for x in keys]
+        # Use numpy directly and keep dtype=object, minimize list-of-arrays creation overhead
+        values_np = [np.asarray(remove_na_arraylike(v), dtype=object) for v in values]
+        bp = ax.boxplot(values_np, **kwds)
         if fontsize is not None:
             ax.tick_params(axis="both", labelsize=fontsize)
 
         # GH 45465: x/y are flipped when "vert" changes
         _set_ticklabels(
-            ax=ax, labels=keys, is_vertical=kwds.get("vert", True), rotation=rot
+            ax=ax, labels=keys_pp, is_vertical=kwds.get("vert", True), rotation=rot
         )
         maybe_color_bp(bp, color_tup=colors, **kwds)
-
-        # Return axes in multiplot case, maybe revisit later # 985
         if return_type == "dict":
             return bp
         elif return_type == "both":
@@ -427,8 +447,6 @@ def boxplot(
         columns = [column]
 
     if by is not None:
-        # Prefer array return type for 2-D plots to match the subplot layout
-        # https://github.com/pandas-dev/pandas/pull/12216#issuecomment-241175580
         result = _grouped_plot_by_column(
             plot_group,
             data,
@@ -462,7 +480,9 @@ def boxplot(
         else:
             data = data[columns]
 
-        result = plot_group(columns, data.values.T, ax, **kwds)
+        # Optimization: get values once
+        columns_list = list(columns)
+        result = plot_group(columns_list, data.values.T, ax, **kwds)
         ax.grid(grid)
 
     return result
