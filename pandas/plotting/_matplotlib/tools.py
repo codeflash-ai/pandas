@@ -16,6 +16,7 @@ from pandas.core.dtypes.generic import (
     ABCIndex,
     ABCSeries,
 )
+import matplotlib.pyplot as plt
 
 if TYPE_CHECKING:
     from collections.abc import (
@@ -224,8 +225,6 @@ def create_subplots(
     # Four polar axes
     plt.subplots(2, 2, subplot_kw=dict(polar=True))
     """
-    import matplotlib.pyplot as plt
-
     if subplot_kw is None:
         subplot_kw = {}
 
@@ -233,8 +232,10 @@ def create_subplots(
         fig = plt.figure(**fig_kw)
     else:
         if is_list_like(ax):
+            # Avoid generator overhead: convert directly to 1d array if possible
+            axarr = np.asarray(ax, dtype=object).reshape(-1)
             if squeeze:
-                ax = np.fromiter(flatten_axes(ax), dtype=object)
+                ax = axarr
             if layout is not None:
                 warnings.warn(
                     "When passing multiple axes, layout keyword is ignored.",
@@ -258,12 +259,13 @@ def create_subplots(
                 )
 
         fig = ax.get_figure()
-        # if ax is passed and a number of subplots is 1, return ax as it is
         if naxes == 1:
             if squeeze:
                 return fig, ax
             else:
-                return fig, np.fromiter(flatten_axes(ax), dtype=object)
+                # Avoid generator overhead
+                axes = np.asarray(ax, dtype=object).reshape(-1)
+                return fig, axes
         else:
             warnings.warn(
                 "To output multiple subplots, the figure containing "
@@ -276,8 +278,7 @@ def create_subplots(
     nrows, ncols = _get_layout(naxes, layout=layout, layout_type=layout_type)
     nplots = nrows * ncols
 
-    # Create empty object array to hold all axes.  It's easiest to make it 1-d
-    # so we can just append subplots upon creation, and then
+    # Efficiently create empty array up front, will be filled below
     axarr = np.empty(nplots, dtype=object)
 
     # Create first subplot separately, so we can share it if requested
@@ -289,13 +290,8 @@ def create_subplots(
         subplot_kw["sharey"] = ax0
     axarr[0] = ax0
 
-    # Note off-by-one counting because add_subplot uses the MATLAB 1-based
-    # convention.
     for i in range(1, nplots):
         kwds = subplot_kw.copy()
-        # Set sharex and sharey to None for blank/dummy axes, these can
-        # interfere with proper axis limits on the visible axes if
-        # they share axes e.g. issue #7528
         if i >= naxes:
             kwds["sharex"] = None
             kwds["sharey"] = None
@@ -303,21 +299,17 @@ def create_subplots(
         axarr[i] = ax
 
     if naxes != nplots:
-        for ax in axarr[naxes:]:
-            ax.set_visible(False)
+        for idx in range(naxes, nplots):
+            axarr[idx].set_visible(False)
 
     handle_shared_axes(axarr, nplots, naxes, nrows, ncols, sharex, sharey)
 
     if squeeze:
-        # Reshape the array to have the final desired dimension (nrow,ncol),
-        # though discarding unneeded dimensions that equal 1.  If we only have
-        # one subplot, just return it instead of a 1-element array.
         if nplots == 1:
             axes = axarr[0]
         else:
             axes = axarr.reshape(nrows, ncols).squeeze()
     else:
-        # returned axis array will be always 2-d, even if nrows=ncols=1
         axes = axarr.reshape(nrows, ncols)
 
     return fig, axes
@@ -446,7 +438,8 @@ def flatten_axes(axes: Axes | Iterable[Axes]) -> Generator[Axes]:
     if not is_list_like(axes):
         yield axes  # type: ignore[misc]
     elif isinstance(axes, (np.ndarray, ABCIndex)):
-        yield from np.asarray(axes).reshape(-1)
+        # Use asarray/reshape for efficiency on ndarray-like
+        yield from np.asarray(axes, dtype=object).reshape(-1)
     else:
         yield from axes  # type: ignore[misc]
 

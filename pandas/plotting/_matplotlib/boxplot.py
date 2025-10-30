@@ -121,8 +121,7 @@ class BoxPlot(LinePlot):
 
         if colormap is not None:
             warnings.warn(
-                "'color' and 'colormap' cannot be used "
-                "simultaneously. Using 'color'",
+                "'color' and 'colormap' cannot be used simultaneously. Using 'color'",
                 stacklevel=find_stack_level(),
             )
 
@@ -317,7 +316,8 @@ def _grouped_plot_by_column(
 
     ax_values = []
 
-    for ax, col in zip(flatten_axes(axes), columns):
+    fa = flatten_axes(axes)
+    for ax, col in zip(fa, columns):
         gp_col = grouped[col]
         keys, values = zip(*gp_col)
         re_plotf = plotf(keys, values, ax, xlabel=xlabel, ylabel=ylabel, **kwargs)
