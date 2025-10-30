@@ -221,17 +221,17 @@ class ArrowTemporalProperties(PandasDelegate, PandasObject, NoNewAttributesMixin
             FutureWarning,
             stacklevel=find_stack_level(),
         )
-        return cast(ArrowExtensionArray, self._parent.array)._dt_to_pytimedelta()
+        return cast("ArrowExtensionArray", self._parent.array)._dt_to_pytimedelta()
 
     def to_pydatetime(self) -> Series:
         # GH#20306
-        return cast(ArrowExtensionArray, self._parent.array)._dt_to_pydatetime()
+        return cast("ArrowExtensionArray", self._parent.array)._dt_to_pydatetime()
 
     def isocalendar(self) -> DataFrame:
         from pandas import DataFrame
 
         result = (
-            cast(ArrowExtensionArray, self._parent.array)
+            cast("ArrowExtensionArray", self._parent.array)
             ._dt_isocalendar()
             ._pa_array.combine_chunks()
         )
@@ -651,25 +651,34 @@ class CombinedDatetimelikeProperties(
                 f"cannot convert an object of type {type(data)} to a datetimelike index"
             )
 
-        orig = data if isinstance(data.dtype, CategoricalDtype) else None
-        if orig is not None:
-            data = data._constructor(
-                orig.array,
-                name=orig.name,
-                copy=False,
-                dtype=orig._values.categories.dtype,
-                index=orig.index,
-            )
+        dtype = data.dtype  # Avoid repeated attribute accesses
 
-        if isinstance(data.dtype, ArrowDtype) and data.dtype.kind in "Mm":
+        orig = data if isinstance(dtype, CategoricalDtype) else None
+        if orig is not None:
+            orig_array = orig.array
+            orig_name = orig.name
+            orig_categories_dtype = orig._values.categories.dtype
+            orig_index = orig.index
+            data = data._constructor(
+                orig_array,
+                name=orig_name,
+                copy=False,
+                dtype=orig_categories_dtype,
+                index=orig_index,
+            )
+            dtype = data.dtype  # Update dtype after constructing new data
+
+        # Fastest check first: ArrowDtype with kind in "Mm"
+        # Grouping all dtype checks to minimize attribute accesses
+        if isinstance(dtype, ArrowDtype) and dtype.kind in "Mm":
             return ArrowTemporalProperties(data, orig)
-        if lib.is_np_dtype(data.dtype, "M"):
+        if lib.is_np_dtype(dtype, "M"):
             return DatetimeProperties(data, orig)
-        elif isinstance(data.dtype, DatetimeTZDtype):
+        elif isinstance(dtype, DatetimeTZDtype):
             return DatetimeProperties(data, orig)
-        elif lib.is_np_dtype(data.dtype, "m"):
+        elif lib.is_np_dtype(dtype, "m"):
             return TimedeltaProperties(data, orig)
-        elif isinstance(data.dtype, PeriodDtype):
+        elif isinstance(dtype, PeriodDtype):
             return PeriodProperties(data, orig)
 
         raise AttributeError("Can only use .dt accessor with datetimelike values")
