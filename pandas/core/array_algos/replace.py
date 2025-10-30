@@ -33,14 +33,18 @@ def should_use_regex(regex: bool, to_replace: Any) -> bool:
     """
     Decide whether to treat `to_replace` as a regular expression.
     """
+    # Fast path: short-circuit as soon as regex is False
+    if not regex:
+        return False
+    # If to_replace is already a compiled pattern, always treat as regex
     if is_re(to_replace):
-        regex = True
-
-    regex = regex and is_re_compilable(to_replace)
-
-    # Don't use regex if the pattern is empty.
-    regex = regex and re.compile(to_replace).pattern != ""
-    return regex
+        return True
+    # If not compilable, avoid trying to compile/regex
+    if not is_re_compilable(to_replace):
+        return False
+    # Try to compile once and check if pattern is not empty
+    pattern = re.compile(to_replace)
+    return pattern.pattern != ""
 
 
 def compare_or_regex_search(
@@ -75,31 +79,35 @@ def compare_or_regex_search(
         """
         if is_bool(result) and isinstance(a, np.ndarray):
             type_names = [type(a).__name__, type(b).__name__]
-
             type_names[0] = f"ndarray(dtype={a.dtype})"
-
             raise TypeError(
                 f"Cannot compare types {type_names[0]!r} and {type_names[1]!r}"
             )
 
-    if not regex or not should_use_regex(regex, b):
-        # TODO: should use missing.mask_missing?
+    regex_mode = regex and should_use_regex(True, b)
+    if not regex_mode:
         op = lambda x: operator.eq(x, b)
     else:
-        op = np.vectorize(
-            lambda x: bool(re.search(b, x))
-            if isinstance(x, str) and isinstance(b, (str, Pattern))
-            else False
-        )
+        search_pattern = b
+        if isinstance(b, str):
+            # Compile once if possible; this is much faster for repeated search
+            search_pattern = re.compile(b)
+
+        def regex_match_on_str(x):
+            # Only run search if input is string; otherwise always False
+            if isinstance(x, str):
+                # b is now a compiled pattern or an existing pattern
+                return bool(search_pattern.search(x))
+            return False
+
+        op = np.vectorize(regex_match_on_str)
 
     # GH#32621 use mask to avoid comparing to NAs
     if isinstance(a, np.ndarray) and mask is not None:
-        a = a[mask]
-        result = op(a)
+        a_masked = a[mask]
+        result = op(a_masked)
 
         if isinstance(result, np.ndarray):
-            # The shape of the mask can differ to that of the result
-            # since we may compare only a subset of a's or b's elements
             tmp = np.zeros(mask.shape, dtype=np.bool_)
             np.place(tmp, mask, result)
             result = tmp
