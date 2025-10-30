@@ -63,18 +63,15 @@ def in_interactive_session() -> bool:
     """
     from pandas import get_option
 
-    def check_main() -> bool:
+    try:
+        # error: Name '__IPYTHON__' is not defined
+        return __IPYTHON__  # type: ignore[name-defined]
+    except NameError:
         try:
             import __main__ as main
         except ModuleNotFoundError:
             return get_option("mode.sim_interactive")
         return not hasattr(main, "__file__") or get_option("mode.sim_interactive")
-
-    try:
-        # error: Name '__IPYTHON__' is not defined
-        return __IPYTHON__ or check_main()  # type: ignore[name-defined]
-    except NameError:
-        return check_main()
 
 
 def in_ipython_frontend() -> bool:
