@@ -193,7 +193,7 @@ def names_compat(meth: F) -> F:
 
         return meth(self_or_cls, *args, **kwargs)
 
-    return cast(F, new_meth)
+    return cast("F", new_meth)
 
 
 @set_module("pandas")
@@ -562,7 +562,7 @@ class MultiIndex(Index):
             raise TypeError("Input must be a list / sequence of tuple-likes.")
         if is_iterator(tuples):
             tuples = list(tuples)
-        tuples = cast(Collection[tuple[Hashable, ...]], tuples)
+        tuples = cast("Collection[tuple[Hashable, ...]]", tuples)
 
         # handling the empty tuple cases
         if len(tuples) and all(isinstance(e, tuple) and not e for e in tuples):
@@ -592,7 +592,7 @@ class MultiIndex(Index):
             arrays = list(lib.to_object_array_tuples(tuples).T)
         else:
             arrs = zip(*tuples)
-            arrays = cast(list[Sequence[Hashable]], arrs)
+            arrays = cast("list[Sequence[Hashable]]", arrs)
 
         return cls.from_arrays(arrays, sortorder=sortorder, names=names)
 
@@ -4176,30 +4176,37 @@ def _lexsort_depth(codes: list[np.ndarray], nlevels: int) -> int:
 
 
 def sparsify_labels(label_list, start: int = 0, sentinel: object = ""):
-    pivoted = list(zip(*label_list))
+    # Avoid unnecessary list(zip(*...)) by using generator and tuple
+    pivoted = tuple(zip(*label_list))
     k = len(label_list)
 
-    result = pivoted[: start + 1]
+    # Pre-size result list to avoid repeated reallocations
+    result = list(pivoted[: start + 1])
     prev = pivoted[start]
 
-    for cur in pivoted[start + 1 :]:
-        sparse_cur = []
+    append_result = result.append  # Local variable for faster access
 
-        for i, (p, t) in enumerate(zip(prev, cur)):
+    # Remove slice allocation in loop header by iterating via index
+    for idx in range(start + 1, len(pivoted)):
+        cur = pivoted[idx]
+        sparse_cur = [sentinel] * k  # Preallocate full list, improves speed
+
+        # Only first divergence or last item is copied, rest are left sentinel
+        for i in range(k):
             if i == k - 1:
-                sparse_cur.append(t)
-                result.append(sparse_cur)  # type: ignore[arg-type]
+                sparse_cur[i] = cur[i]
+                append_result(sparse_cur)  # type: ignore[arg-type]
                 break
-
-            if p == t:
-                sparse_cur.append(sentinel)
-            else:
-                sparse_cur.extend(cur[i:])
-                result.append(sparse_cur)  # type: ignore[arg-type]
+            elif prev[i] != cur[i]:
+                # Only copy from the differing position to the end
+                # Avoid extend and slice assignment for speed
+                for j in range(i, k):
+                    sparse_cur[j] = cur[j]
+                append_result(sparse_cur)  # type: ignore[arg-type]
                 break
-
         prev = cur
 
+    # Use built-in zip with unpacking (already a list of tuples)
     return list(zip(*result))
 
 
