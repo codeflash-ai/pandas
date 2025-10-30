@@ -1080,14 +1080,14 @@ def all_reductions(request):
 
 
 @pytest.fixture(
-    params=[
+    params=(
         operator.eq,
         operator.ne,
         operator.gt,
         operator.ge,
         operator.lt,
         operator.le,
-    ]
+    )
 )
 def comparison_op(request):
     """
