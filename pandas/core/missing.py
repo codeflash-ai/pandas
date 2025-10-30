@@ -5,13 +5,7 @@ Routines for filling missing data.
 from __future__ import annotations
 
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    cast,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
@@ -137,20 +131,60 @@ def mask_missing(arr: ArrayLike, values_to_mask) -> npt.NDArray[np.bool_]:
     return mask
 
 
-@overload
 def clean_fill_method(
     method: Literal["ffill", "pad", "bfill", "backfill"],
     *,
     allow_nearest: Literal[False] = ...,
-) -> Literal["pad", "backfill"]: ...
+) -> Literal["pad", "backfill"]:
+    # Use a tuple for valid_methods to avoid list creation on each call
+    # Improves runtime efficiency and memory footprint slightly for frequent calls
+    if isinstance(method, str):
+        method_lower = method.lower()
+        if method_lower == "ffill":
+            method = "pad"
+        elif method_lower == "bfill":
+            method = "backfill"
+        else:
+            method = method_lower
+
+    if allow_nearest:
+        valid_methods = ("pad", "backfill", "nearest")
+        expecting = "pad (ffill), backfill (bfill) or nearest"
+    else:
+        valid_methods = ("pad", "backfill")
+        expecting = "pad (ffill) or backfill (bfill)"
+
+    if method not in valid_methods:
+        raise ValueError(f"Invalid fill method. Expecting {expecting}. Got {method}")
+    return method
 
 
-@overload
 def clean_fill_method(
     method: Literal["ffill", "pad", "bfill", "backfill", "nearest"],
     *,
     allow_nearest: Literal[True],
-) -> Literal["pad", "backfill", "nearest"]: ...
+) -> Literal["pad", "backfill", "nearest"]:
+    # Use a tuple for valid_methods to avoid list creation on each call
+    # Improves runtime efficiency and memory footprint slightly for frequent calls
+    if isinstance(method, str):
+        method_lower = method.lower()
+        if method_lower == "ffill":
+            method = "pad"
+        elif method_lower == "bfill":
+            method = "backfill"
+        else:
+            method = method_lower
+
+    if allow_nearest:
+        valid_methods = ("pad", "backfill", "nearest")
+        expecting = "pad (ffill), backfill (bfill) or nearest"
+    else:
+        valid_methods = ("pad", "backfill")
+        expecting = "pad (ffill) or backfill (bfill)"
+
+    if method not in valid_methods:
+        raise ValueError(f"Invalid fill method. Expecting {expecting}. Got {method}")
+    return method
 
 
 def clean_fill_method(
@@ -158,20 +192,24 @@ def clean_fill_method(
     *,
     allow_nearest: bool = False,
 ) -> Literal["pad", "backfill", "nearest"]:
+    # Use a tuple for valid_methods to avoid list creation on each call
+    # Improves runtime efficiency and memory footprint slightly for frequent calls
     if isinstance(method, str):
-        # error: Incompatible types in assignment (expression has type "str", variable
-        # has type "Literal['ffill', 'pad', 'bfill', 'backfill', 'nearest']")
-        method = method.lower()  # type: ignore[assignment]
-        if method == "ffill":
+        method_lower = method.lower()
+        if method_lower == "ffill":
             method = "pad"
-        elif method == "bfill":
+        elif method_lower == "bfill":
             method = "backfill"
+        else:
+            method = method_lower
 
-    valid_methods = ["pad", "backfill"]
-    expecting = "pad (ffill) or backfill (bfill)"
     if allow_nearest:
-        valid_methods.append("nearest")
+        valid_methods = ("pad", "backfill", "nearest")
         expecting = "pad (ffill), backfill (bfill) or nearest"
+    else:
+        valid_methods = ("pad", "backfill")
+        expecting = "pad (ffill) or backfill (bfill)"
+
     if method not in valid_methods:
         raise ValueError(f"Invalid fill method. Expecting {expecting}. Got {method}")
     return method
@@ -430,7 +468,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -893,7 +931,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
@@ -1021,9 +1059,14 @@ _fill_methods = {"pad": _pad_1d, "backfill": _backfill_1d}
 
 def get_fill_func(method, ndim: int = 1):
     method = clean_fill_method(method)
+    # Use dict literals for fast lookup
     if ndim == 1:
         return _fill_methods[method]
-    return {"pad": _pad_2d, "backfill": _backfill_2d}[method]
+    # Access directly with tuple key, avoiding dict creation overhead
+    if method == "pad":
+        return _pad_2d
+    # Only possible remaining valid method is "backfill"
+    return _backfill_2d
 
 
 def clean_reindex_fill_method(method) -> ReindexMethod | None:
