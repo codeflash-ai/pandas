@@ -641,16 +641,18 @@ def _create_multiindex():
     """
 
     # See Also: tests.multi.conftest.idx
-    major_axis = Index(["foo", "bar", "baz", "qux"])
-    minor_axis = Index(["one", "two"])
+    if not hasattr(_create_multiindex, "_cached"):
+        _create_multiindex._major_axis = Index(["foo", "bar", "baz", "qux"])
+        _create_multiindex._minor_axis = Index(["one", "two"])
+        _create_multiindex._major_codes = np.array([0, 0, 1, 2, 3, 3])
+        _create_multiindex._minor_codes = np.array([0, 1, 0, 1, 0, 1])
+        _create_multiindex._index_names = ["first", "second"]
+        _create_multiindex._cached = True
 
-    major_codes = np.array([0, 0, 1, 2, 3, 3])
-    minor_codes = np.array([0, 1, 0, 1, 0, 1])
-    index_names = ["first", "second"]
     return MultiIndex(
-        levels=[major_axis, minor_axis],
-        codes=[major_codes, minor_codes],
-        names=index_names,
+        levels=[_create_multiindex._major_axis, _create_multiindex._minor_axis],
+        codes=[_create_multiindex._major_codes, _create_multiindex._minor_codes],
+        names=_create_multiindex._index_names,
         verify_integrity=False,
     )
 
