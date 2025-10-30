@@ -286,8 +286,9 @@ def maybe_convert_index(ax: Axes, data: NDFrameT) -> NDFrameT:
         if freq is None:
             # We only get here for DatetimeIndex
             data.index = cast("DatetimeIndex", data.index)
-            freq = data.index.inferred_freq
-            freq = to_offset(freq)
+            inferred_freq = data.index.inferred_freq
+            if inferred_freq is not None:
+                freq = to_offset(inferred_freq)
 
         if freq is None:
             freq = _get_ax_freq(ax)
@@ -308,9 +309,16 @@ def maybe_convert_index(ax: Axes, data: NDFrameT) -> NDFrameT:
             )
 
             if isinstance(data.index, ABCDatetimeIndex):
+                # Avoid unnecessary computation if already correct freq
+                current_freq_str = getattr(data.index, "freqstr", None)
+                if current_freq_str == freq_str:
+                    return data
                 data = data.tz_localize(None).to_period(freq=freq_str)
             elif isinstance(data.index, ABCPeriodIndex):
-                data.index = data.index.asfreq(freq=freq_str, how="start")
+                # Only update index if freq differs
+                current_freq_str = getattr(data.index, "freqstr", None)
+                if current_freq_str != freq_str:
+                    data.index = data.index.asfreq(freq=freq_str, how="start")
     return data
 
 
