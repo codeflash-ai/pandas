@@ -48,6 +48,8 @@ from pandas.core.dtypes.missing import (
 if TYPE_CHECKING:
     from pandas import Index
 
+_VALID_LIMIT_DIRECTIONS = {"forward", "backward", "both"}
+
 
 def check_value_size(value, mask: npt.NDArray[np.bool_], length: int):
     """
@@ -261,16 +263,15 @@ def find_valid_index(how: str, is_valid: npt.NDArray[np.bool_]) -> int | None:
 def validate_limit_direction(
     limit_direction: str,
 ) -> Literal["forward", "backward", "both"]:
-    valid_limit_directions = ["forward", "backward", "both"]
-    limit_direction = limit_direction.lower()
-    if limit_direction not in valid_limit_directions:
+    limit_direction_lower = limit_direction.lower()
+    if limit_direction_lower not in _VALID_LIMIT_DIRECTIONS:
+        # Still show the error with the original case-correct list
         raise ValueError(
             "Invalid limit_direction: expecting one of "
-            f"{valid_limit_directions}, got '{limit_direction}'."
+            "['forward', 'backward', 'both'], got "
+            f"'{limit_direction_lower}'."
         )
-    # error: Incompatible return value type (got "str", expected
-    # "Literal['forward', 'backward', 'both']")
-    return limit_direction  # type: ignore[return-value]
+    return limit_direction_lower  # type: ignore[return-value]
 
 
 def validate_limit_area(limit_area: str | None) -> Literal["inside", "outside"] | None:
@@ -430,7 +431,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -893,7 +894,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
