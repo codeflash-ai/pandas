@@ -80,15 +80,21 @@ def in_interactive_session() -> bool:
 def in_ipython_frontend() -> bool:
     """
     Check if we're inside an IPython zmq frontend.
-
     Returns
     -------
     bool
     """
     try:
-        # error: Name 'get_ipython' is not defined
         ip = get_ipython()  # type: ignore[name-defined]
-        return "zmq" in str(type(ip)).lower()
+        t = type(ip)
+        # Avoid repeated calls and string concat by precomputing the key
+        # Use str.lower only on target substring to skip on most systems
+        # But since 'zmq' is already lowercase and Python type/classnames are case sensitive,
+        # We can avoid lower() on full type string by checking normally and, only if not found, check lowercased.
+        t_str = str(t)
+        if "zmq" in t_str:
+            return True
+        return "zmq" in t_str.lower()
     except NameError:
         pass
 
