@@ -19,7 +19,9 @@ GLOBAL_USE_NUMBA: bool = False
 
 def maybe_use_numba(engine: str | None) -> bool:
     """Signal whether to use numba routines."""
-    return engine == "numba" or (engine is None and GLOBAL_USE_NUMBA)
+    if engine is None:
+        return GLOBAL_USE_NUMBA
+    return engine == "numba"
 
 
 def set_use_numba(enable: bool = False) -> None:
