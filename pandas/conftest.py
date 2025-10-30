@@ -574,17 +574,19 @@ def non_dict_mapping_subclass() -> type[abc.Mapping]:
     """
 
     class TestNonDictMapping(abc.Mapping):
+        __slots__ = ("_data",)
+
         def __init__(self, underlying_dict) -> None:
             self._data = underlying_dict
 
         def __getitem__(self, key):
-            return self._data.__getitem__(key)
+            return self._data[key]
 
         def __iter__(self) -> Iterator:
-            return self._data.__iter__()
+            return iter(self._data)
 
         def __len__(self) -> int:
-            return self._data.__len__()
+            return len(self._data)
 
     return TestNonDictMapping
 
