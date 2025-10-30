@@ -1238,20 +1238,31 @@ def _build_names_mapper(
         a list of column names with duplicate names replaced by dummy names
 
     """
-    dup_names = set(rownames) | set(colnames)
+    # Precompute the set of duplicate names once for both lists
+    dup_names = set(rownames)
+    dup_names.update(colnames)
 
-    rownames_mapper = {
-        f"row_{i}": name for i, name in enumerate(rownames) if name in dup_names
-    }
-    unique_rownames = [
-        f"row_{i}" if name in dup_names else name for i, name in enumerate(rownames)
-    ]
+    # Preallocate results for performance: single-pass for both original and mapper
+    unique_rownames = [None] * len(rownames)
+    rownames_mapper = {}
 
-    colnames_mapper = {
-        f"col_{i}": name for i, name in enumerate(colnames) if name in dup_names
-    }
-    unique_colnames = [
-        f"col_{i}" if name in dup_names else name for i, name in enumerate(colnames)
-    ]
+    for i, name in enumerate(rownames):
+        if name in dup_names:
+            dummy = f"row_{i}"
+            rownames_mapper[dummy] = name
+            unique_rownames[i] = dummy
+        else:
+            unique_rownames[i] = name
+
+    unique_colnames = [None] * len(colnames)
+    colnames_mapper = {}
+
+    for i, name in enumerate(colnames):
+        if name in dup_names:
+            dummy = f"col_{i}"
+            colnames_mapper[dummy] = name
+            unique_colnames[i] = dummy
+        else:
+            unique_colnames[i] = name
 
     return rownames_mapper, unique_rownames, colnames_mapper, unique_colnames
