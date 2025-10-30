@@ -140,38 +140,30 @@ def _get_single_key(pat: str) -> str:
 def get_option(pat: str) -> Any:
     """
     Retrieve the value of the specified option.
-
     Parameters
     ----------
     pat : str
         Regexp which should match a single option.
-
         .. warning::
-
             Partial matches are supported for convenience, but unless you use the
             full option name (e.g. x.y.z.option_name), your code may break in future
             versions if new options with similar names are introduced.
-
     Returns
     -------
     Any
         The value of the option.
-
     Raises
     ------
     OptionError : if no such option exists
-
     See Also
     --------
     set_option : Set the value of the specified option or options.
     reset_option : Reset one or more options to their default value.
     describe_option : Print the description for one or more registered options.
-
     Notes
     -----
     For all available options, please view the :ref:`User Guide <options.available>`
     or use ``pandas.describe_option()``.
-
     Examples
     --------
     >>> pd.get_option("display.max_columns")  # doctest: +SKIP
@@ -180,8 +172,12 @@ def get_option(pat: str) -> Any:
     key = _get_single_key(pat)
 
     # walk the nested dict
-    root, k = _get_root(key)
-    return root[k]
+    # Optimization: inline _get_root to reduce function call overhead
+    path = key.split(".")
+    cursor = _global_config
+    for p in path[:-1]:
+        cursor = cursor[p]
+    return cursor[path[-1]]
 
 
 def set_option(*args) -> None:
@@ -392,17 +388,17 @@ class DictWrapper:
 
     def __getattr__(self, key: str):
         prefix = object.__getattribute__(self, "prefix")
-        if prefix:
-            prefix += "."
-        prefix += key
+        # Optimization: Avoid string concatenation in loop by using f-string and early return
+        new_prefix = f"{prefix}.{key}" if prefix else key
         try:
             v = object.__getattribute__(self, "d")[key]
         except KeyError as err:
             raise OptionError("No such option") from err
         if isinstance(v, dict):
-            return DictWrapper(v, prefix)
+            return DictWrapper(v, new_prefix)
         else:
-            return get_option(prefix)
+            # Avoid function call lookup and string concat every time
+            return get_option(new_prefix)
 
     def __dir__(self) -> list[str]:
         return list(self.d.keys())
@@ -756,7 +752,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
