@@ -6,13 +6,15 @@ import numpy as np
 
 from pandas._config import get_option
 
+_DISPLAY_ENCODING = get_option("display.encoding")
+
 
 def ensure_decoded(s) -> str:
     """
     If we have bytes, decode them to unicode.
     """
     if isinstance(s, (np.bytes_, bytes)):
-        s = s.decode(get_option("display.encoding"))
+        s = s.decode(_DISPLAY_ENCODING)
     return s
 
 
