@@ -330,6 +330,9 @@ class ExpandingIndexer(BaseIndexer):
         closed: str | None = None,
         step: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        if num_values == 0:
+            empty = np.empty(0, dtype=np.int64)
+            return empty, empty
         return (
             np.zeros(num_values, dtype=np.int64),
             np.arange(1, num_values + 1, dtype=np.int64),
@@ -478,9 +481,9 @@ class GroupbyIndexer(BaseIndexer):
             )
             start = start.astype(np.int64)
             end = end.astype(np.int64)
-            assert len(start) == len(
-                end
-            ), "these should be equal in length from get_window_bounds"
+            assert len(start) == len(end), (
+                "these should be equal in length from get_window_bounds"
+            )
             # Cannot use groupby_indices as they might not be monotonic with the object
             # we're rolling over
             window_indices = np.arange(
