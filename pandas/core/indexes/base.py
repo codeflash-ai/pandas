@@ -7600,8 +7600,17 @@ def trim_front(strings: list[str]) -> list[str]:
     """
     if not strings:
         return strings
-    smallest_leading_space = min(len(x) - len(x.lstrip()) for x in strings)
+    # Use generator expression for min to avoid creating an intermediate list
+    min_leading = None
+    for x in strings:
+        leading = len(x) - len(x.lstrip())
+        if min_leading is None or leading < min_leading:
+            min_leading = leading
+            if min_leading == 0:
+                break  # can't get less than zero, stop early
+    smallest_leading_space = min_leading
     if smallest_leading_space > 0:
+        # Use list comprehension for fast slicing
         strings = [x[smallest_leading_space:] for x in strings]
     return strings
 
