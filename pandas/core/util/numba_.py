@@ -14,6 +14,8 @@ from pandas.errors import NumbaUtilError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_NUMBA = None
+
 GLOBAL_USE_NUMBA: bool = False
 
 
@@ -71,22 +73,24 @@ def jit_user_function(func: Callable) -> Callable:
     function
         Numba JITed function, or function marked as JITable by numba
     """
+    global _NUMBA
     if TYPE_CHECKING:
         import numba
     else:
-        numba = import_optional_dependency("numba")
+        if _NUMBA is None:
+            _NUMBA = import_optional_dependency("numba")
+        numba = _NUMBA
 
-    if numba.extending.is_jitted(func):
-        # Don't jit a user passed jitted function
+    is_jitted = numba.extending.is_jitted
+    register_jitable = numba.extending.register_jitable
+    builtin_type = types.BuiltinFunctionType
+
+    if is_jitted(func):
         numba_func = func
-    elif getattr(np, func.__name__, False) is func or isinstance(
-        func, types.BuiltinFunctionType
-    ):
-        # Not necessary to jit builtins or np functions
-        # This will mess up register_jitable
+    elif getattr(np, func.__name__, None) is func or isinstance(func, builtin_type):
         numba_func = func
     else:
-        numba_func = numba.extending.register_jitable(func)
+        numba_func = register_jitable(func)
 
     return numba_func
 
