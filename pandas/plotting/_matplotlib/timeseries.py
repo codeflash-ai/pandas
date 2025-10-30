@@ -187,20 +187,35 @@ def _get_ax_freq(ax: Axes):
     or twinx)
     """
     ax_freq = getattr(ax, "freq", None)
-    if ax_freq is None:
-        # check for left/right ax in case of secondary yaxis
-        if hasattr(ax, "left_ax"):
-            ax_freq = getattr(ax.left_ax, "freq", None)
-        elif hasattr(ax, "right_ax"):
-            ax_freq = getattr(ax.right_ax, "freq", None)
-    if ax_freq is None:
-        # check if a shared ax (sharex/twinx) has already freq set
-        shared_axes = ax.get_shared_x_axes().get_siblings(ax)
-        if len(shared_axes) > 1:
-            for shared_ax in shared_axes:
-                ax_freq = getattr(shared_ax, "freq", None)
-                if ax_freq is not None:
-                    break
+    if ax_freq is not None:
+        return ax_freq
+
+    # Check for left/right ax in case of secondary yaxis
+    left_ax = getattr(ax, "left_ax", None)
+    if left_ax is not None:
+        ax_freq = getattr(left_ax, "freq", None)
+        if ax_freq is not None:
+            return ax_freq
+
+    right_ax = getattr(ax, "right_ax", None)
+    if right_ax is not None:
+        ax_freq = getattr(right_ax, "freq", None)
+        if ax_freq is not None:
+            return ax_freq
+
+    # Check if a shared ax (sharex/twinx) has already freq set
+    shared_axes = ax.get_shared_x_axes().get_siblings(ax)
+    if len(shared_axes) > 1:
+        # Use a generator expression to more rapidly find a freq value
+        ax_freq = next(
+            (
+                getattr(shared_ax, "freq", None)
+                for shared_ax in shared_axes
+                if getattr(shared_ax, "freq", None) is not None
+            ),
+            None,
+        )
+
     return ax_freq
 
 
