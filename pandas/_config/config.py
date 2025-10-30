@@ -607,11 +607,12 @@ def _select_options(pat: str) -> list[str]:
         return [pat]
 
     # else look through all of them
-    keys = sorted(_registered_options.keys())
     if pat == "all":  # reserved key
-        return keys
+        return sorted(_registered_options.keys())
 
-    return [k for k in keys if re.search(pat, k, re.I)]
+    regex = re.compile(pat, re.I)
+    matched_keys = [k for k in _registered_options.keys() if regex.search(k)]
+    return sorted(matched_keys)
 
 
 def _get_root(key: str) -> tuple[dict[str, Any], str]:
@@ -756,7 +757,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
