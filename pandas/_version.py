@@ -198,11 +198,12 @@ def git_versions_from_keywords(keywords, tag_prefix, verbose):
         if verbose:
             print("keywords are unexpanded, not using")
         raise NotThisMethod("unexpanded keywords, not a git-archive tarball")
-    refs = {r.strip() for r in refnames.strip("()").split(",")}
+
+    refs = [r.strip() for r in refnames.strip("()").split(",")]
     # starting in git-1.8.3, tags are listed as "tag: foo-1.0" instead of
     # just "foo-1.0". If we see a "tag: " prefix, prefer those.
     TAG = "tag: "
-    tags = {r[len(TAG) :] for r in refs if r.startswith(TAG)}
+    tags = [r[len(TAG) :] for r in refs if r.startswith(TAG)]
     if not tags:
         # Either we're using git < 1.8.3, or there really are no tags. We use
         # a heuristic: assume all version tags have a digit. The old git %d
@@ -211,19 +212,26 @@ def git_versions_from_keywords(keywords, tag_prefix, verbose):
         # between branches and tags. By ignoring refnames without digits, we
         # filter out many common branch names like "release" and
         # "stabilization", as well as "HEAD" and "master".
-        tags = {r for r in refs if re.search(r"\d", r)}
+        digit_match = re.compile(r"\d")
+        tags = [r for r in refs if digit_match.search(r)]
         if verbose:
-            print(f"discarding '{','.join(refs - tags)}', no digits")
+            print(f"discarding '{','.join(set(refs) - set(tags))}', no digits")
+
     if verbose:
         print(f"likely tags: {','.join(sorted(tags))}")
+
+    tag_prefix_len = len(tag_prefix)
+    digit_match_start = re.compile(r"\d")
+
+    # Instead of repeatedly sorting entire tags list, sort once
     for ref in sorted(tags):
         # sorting will prefer e.g. "2.0" over "2.0rc1"
         if ref.startswith(tag_prefix):
-            r = ref[len(tag_prefix) :]
+            r = ref[tag_prefix_len:]
             # Filter out refs that exactly match prefix or that don't start
             # with a number once the prefix is stripped (mostly a concern
             # when prefix is '')
-            if not re.match(r"\d", r):
+            if not digit_match_start.match(r):
                 continue
             if verbose:
                 print(f"picking {r}")
