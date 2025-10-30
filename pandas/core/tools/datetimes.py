@@ -89,6 +89,12 @@ if TYPE_CHECKING:
         Series,
     )
 
+_JULIAN_ZERO = Timestamp(0).to_julian_date()
+
+_JULIAN_MAX = Timestamp.max.to_julian_date() - _JULIAN_ZERO
+
+_JULIAN_MIN = Timestamp.min.to_julian_date() - _JULIAN_ZERO
+
 # ---------------------------------------------------------------------
 # types used in annotations
 
@@ -191,9 +197,9 @@ def should_cache(
         else:
             check_count = 500
     else:
-        assert (
-            0 <= check_count <= len(arg)
-        ), "check_count must be in next bounds: [0; len(arg)]"
+        assert 0 <= check_count <= len(arg), (
+            "check_count must be in next bounds: [0; len(arg)]"
+        )
         if check_count == 0:
             return False
 
@@ -372,7 +378,7 @@ def _convert_listlike_datetimes(
         if utc:
             # pyarrow uses UTC, not lowercase utc
             if isinstance(arg, Index):
-                arg_array = cast(ArrowExtensionArray, arg.array)
+                arg_array = cast("ArrowExtensionArray", arg.array)
                 if arg_dtype.pyarrow_dtype.tz is not None:
                     arg_array = arg_array._dt_tz_convert("UTC")
                 else:
@@ -567,23 +573,21 @@ def _adjust_to_origin(arg, origin, unit):
     """
     if origin == "julian":
         original = arg
-        j0 = Timestamp(0).to_julian_date()
+        j0 = _JULIAN_ZERO
         if unit != "D":
             raise ValueError("unit must be 'D' for origin='julian'")
         try:
-            arg = arg - j0
+            arg_minus_j0 = arg - j0
         except TypeError as err:
             raise ValueError(
                 "incompatible 'arg' type for given 'origin'='julian'"
             ) from err
 
-        # preemptively check this for a nice range
-        j_max = Timestamp.max.to_julian_date() - j0
-        j_min = Timestamp.min.to_julian_date() - j0
-        if np.any(arg > j_max) or np.any(arg < j_min):
+        if np.any(arg_minus_j0 > _JULIAN_MAX) or np.any(arg_minus_j0 < _JULIAN_MIN):
             raise OutOfBoundsDatetime(
                 f"{original} is Out of Bounds for origin='julian'"
             )
+        arg = arg_minus_j0
     else:
         # arg must be numeric
         if not (
@@ -609,7 +613,6 @@ def _adjust_to_origin(arg, origin, unit):
         td_offset = offset - Timestamp(0)
 
         # convert the offset to the unit of the arg
-        # this should be lossless in terms of precision
         ioffset = td_offset // Timedelta(1, unit=unit)
 
         # scalars & ndarray-like can handle the addition
@@ -1033,7 +1036,7 @@ def to_datetime(
             # ndarray[Any, Any], Series]"; expected "Union[List[Any], Tuple[Any, ...],
             # Union[Union[ExtensionArray, ndarray[Any, Any]], Index, Series], Series]"
             argc = cast(
-                Union[list, tuple, ExtensionArray, np.ndarray, "Series", Index], arg
+                "Union[list, tuple, ExtensionArray, np.ndarray, Series, Index]", arg
             )
             cache_array = _maybe_cache(argc, format, cache, convert_listlike)
         except OutOfBoundsDatetime:
