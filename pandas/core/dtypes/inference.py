@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
     from pandas._typing import TypeGuard
 
+_number_types = (Number, np.number)
+
 is_bool = lib.is_bool
 
 is_integer = lib.is_integer
@@ -72,7 +74,8 @@ def is_number(obj: object) -> TypeGuard[Number | np.number]:
     >>> is_number("5")
     False
     """
-    return isinstance(obj, (Number, np.number))
+    # Cache types tuple at module load time to avoid recreating it each call
+    return isinstance(obj, _number_types)
 
 
 def iterable_not_string(obj: object) -> bool:
