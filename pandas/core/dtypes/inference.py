@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from pandas._libs import lib
+from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Hashable
@@ -367,7 +368,7 @@ def is_named_tuple(obj: object) -> bool:
     >>> is_named_tuple((1, 2))
     False
     """
-    return isinstance(obj, abc.Sequence) and hasattr(obj, "_fields")
+    return hasattr(obj, "_fields") and isinstance(obj, Sequence)
 
 
 def is_hashable(obj: object) -> TypeGuard[Hashable]:
