@@ -54,9 +54,10 @@ def check_value_size(value, mask: npt.NDArray[np.bool_], length: int):
     Validate the size of the values passed to ExtensionArray.fillna.
     """
     if is_array_like(value):
-        if len(value) != length:
+        value_len = len(value)
+        if value_len != length:
             raise ValueError(
-                f"Length of 'value' does not match. Got ({len(value)}) "
+                f"Length of 'value' does not match. Got ({value_len}) "
                 f" expected {length}"
             )
         value = value[mask]
@@ -430,7 +431,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -893,7 +894,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
