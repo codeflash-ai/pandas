@@ -430,7 +430,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -477,44 +477,29 @@ def _interpolate_1d(
     if valid.all():
         return
 
-    # These index pointers to invalid values... i.e. {0, 1, etc...
     all_nans = np.flatnonzero(invalid)
 
     first_valid_index = find_valid_index(how="first", is_valid=valid)
-    if first_valid_index is None:  # no nan found in start
+    if first_valid_index is None:
         first_valid_index = 0
     start_nans = np.arange(first_valid_index)
 
     last_valid_index = find_valid_index(how="last", is_valid=valid)
-    if last_valid_index is None:  # no nan found in end
+    if last_valid_index is None:
         last_valid_index = len(yvalues)
     end_nans = np.arange(1 + last_valid_index, len(valid))
 
-    # preserve_nans contains indices of invalid values,
-    # but in this case, it is the final set of indices that need to be
-    # preserved as NaN after the interpolation.
-
-    # For example if limit_direction='forward' then preserve_nans will
-    # contain indices of NaNs at the beginning of the series, and NaNs that
-    # are more than 'limit' away from the prior non-NaN.
-
-    # set preserve_nans based on direction using _interp_limit
     if limit_direction == "forward":
-        preserve_nans = np.union1d(start_nans, _interp_limit(invalid, limit, 0))
+        preserve_nans = np.union1d(start_nans, _interp_limit_fast(invalid, limit, 0))
     elif limit_direction == "backward":
-        preserve_nans = np.union1d(end_nans, _interp_limit(invalid, 0, limit))
+        preserve_nans = np.union1d(end_nans, _interp_limit_fast(invalid, 0, limit))
     else:
-        # both directions... just use _interp_limit
-        preserve_nans = np.unique(_interp_limit(invalid, limit, limit))
+        preserve_nans = np.unique(_interp_limit_fast(invalid, limit, limit))
 
-    # if limit_area is set, add either mid or outside indices
-    # to preserve_nans GH #16284
     if limit_area == "inside":
-        # preserve NaNs on the outside
         preserve_nans = np.union1d(preserve_nans, start_nans)
         preserve_nans = np.union1d(preserve_nans, end_nans)
     elif limit_area == "outside":
-        # preserve NaNs on the inside
         mid_nans = np.setdiff1d(all_nans, start_nans, assume_unique=True)
         mid_nans = np.setdiff1d(mid_nans, end_nans, assume_unique=True)
         preserve_nans = np.union1d(preserve_nans, mid_nans)
@@ -525,8 +510,6 @@ def _interpolate_1d(
         yvalues = yvalues.view("i8")
 
     if method in NP_METHODS:
-        # np.interp requires sorted X values, #21037
-
         indexer = np.argsort(indices[valid])
         yvalues[invalid] = np.interp(
             indices[invalid], indices[valid][indexer], yvalues[valid][indexer]
@@ -574,7 +557,6 @@ def _interpolate_scipy_wrapper(
 
     new_x = np.asarray(new_x)
 
-    # ignores some kwargs that could be passed along.
     alt_methods = {
         "barycentric": interpolate.barycentric_interpolate,
         "krogh": interpolate.krogh_interpolate,
@@ -603,7 +585,6 @@ def _interpolate_scipy_wrapper(
         )
         new_y = terp(new_x)
     elif method == "spline":
-        # GH #10633, #24014
         if isna(order) or (order <= 0):
             raise ValueError(
                 f"order needs to be specified and greater than 0; got order: {order}"
@@ -611,8 +592,6 @@ def _interpolate_scipy_wrapper(
         terp = interpolate.UnivariateSpline(x, y, k=order, **kwargs)
         new_y = terp(new_x)
     else:
-        # GH 7295: need to be able to write for some reason
-        # in some circumstances: check all three
         if not x.flags.writeable:
             x = x.copy()
         if not y.flags.writeable:
@@ -623,7 +602,6 @@ def _interpolate_scipy_wrapper(
         if terp is None:
             raise ValueError(f"Can not interpolate with method={method}.")
 
-        # Make sure downcast is not in kwargs for alt methods
         kwargs.pop("downcast", None)
         new_y = terp(x, y, new_x, **kwargs)
     return new_y
@@ -893,7 +871,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
@@ -1097,3 +1075,75 @@ def _interp_limit(
                 return b_idx
 
     return np.intersect1d(f_idx, b_idx, assume_unique=assume_unique)
+
+
+def _interp_limit_fast(
+    invalid: npt.NDArray[np.bool_], fw_limit: int | None, bw_limit: int | None
+) -> np.ndarray:
+    """
+    Get indexers of values that won't be filled
+    because they exceed the limits. Highly optimized.
+
+    Parameters
+    ----------
+    invalid : np.ndarray[bool]
+    fw_limit : int or None
+        forward limit
+    bw_limit : int or None
+        backward limit
+
+    Returns
+    -------
+    np.ndarray of indices
+
+    Notes
+    -----
+    Fast, memory-efficient replacement for slow sliding_window_view solution.
+    """
+    N = len(invalid)
+
+    # Fast-forward limit
+    if fw_limit is not None:
+        if fw_limit == 0:
+            f_idx = np.flatnonzero(invalid)
+        else:
+            f_idx = []
+            count = 0
+            for i in range(N):
+                if invalid[i]:
+                    count += 1
+                    if count > fw_limit:
+                        f_idx.append(i)
+                else:
+                    count = 0
+            f_idx = np.array(f_idx, dtype=np.int64)
+    else:
+        f_idx = np.array([], dtype=np.int64)
+
+    # Fast-backward limit
+    if bw_limit is not None:
+        if bw_limit == 0:
+            return f_idx
+        else:
+            b_idx = []
+            count = 0
+            for i in range(N - 1, -1, -1):
+                if invalid[i]:
+                    count += 1
+                    if count > bw_limit:
+                        b_idx.append(i)
+                else:
+                    count = 0
+            b_idx = np.array(b_idx, dtype=np.int64)
+            b_idx = b_idx[::-1]  # original order
+            if fw_limit == 0:
+                return b_idx
+    else:
+        b_idx = np.array([], dtype=np.int64)
+
+    if bw_limit is not None and fw_limit is not None:
+        return np.intersect1d(f_idx, b_idx, assume_unique=True)
+    elif fw_limit is not None:
+        return f_idx
+    else:
+        return b_idx
