@@ -48,7 +48,7 @@ class FrozenList(PandasObject, list):
         """
         if isinstance(other, tuple):
             other = list(other)
-        return type(self)(super().__add__(other))
+        return type(self)(list.__add__(self, other))
 
     def difference(self, other) -> FrozenList:
         """
