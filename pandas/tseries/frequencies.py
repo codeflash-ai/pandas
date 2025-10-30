@@ -53,6 +53,26 @@ if TYPE_CHECKING:
         TimedeltaIndex,
     )
     from pandas.core.arrays.datetimelike import DatetimeLikeArrayMixin
+
+_FREQS_ANNUAL_TO = frozenset({"D", "C", "B", "M", "h", "min", "s", "ms", "us", "ns"})
+
+_FREQS_QUARTERLY_TO = _FREQS_ANNUAL_TO
+
+_FREQS_MONTHLY_TO = frozenset({"D", "C", "B", "h", "min", "s", "ms", "us", "ns"})
+
+_FREQS_DAILY_TO = frozenset({"D", "C", "B", "h", "min", "s", "ms", "us", "ns"})
+
+_FREQS_HOURLY_TO = frozenset({"h", "min", "s", "ms", "us", "ns"})
+
+_FREQS_MIN_TO = frozenset({"min", "s", "ms", "us", "ns"})
+
+_FREQS_S_TO = frozenset({"s", "ms", "us", "ns"})
+
+_FREQS_MS_TO = frozenset({"ms", "us", "ns"})
+
+_FREQS_US_TO = frozenset({"us", "ns"})
+
+_FREQS_NS_TO = frozenset({"ns"})
 # --------------------------------------------------------------------
 # Offset related functions
 
@@ -133,8 +153,7 @@ def infer_freq(
         pass
     elif isinstance(index.dtype, PeriodDtype):
         raise TypeError(
-            "PeriodIndex given. Check the `freq` attribute "
-            "instead of using infer_freq."
+            "PeriodIndex given. Check the `freq` attribute instead of using infer_freq."
         )
     elif lib.is_np_dtype(index.dtype, "m"):
         # Allow TimedeltaIndex and TimedeltaArray
@@ -501,42 +520,51 @@ def is_superperiod(source, target) -> bool:
     """
     if target is None or source is None:
         return False
-    source = _maybe_coerce_freq(source)
-    target = _maybe_coerce_freq(target)
 
-    if _is_annual(source):
-        if _is_annual(target):
-            return get_rule_month(source) == get_rule_month(target)
+    s = _maybe_coerce_freq(source)
+    t = _maybe_coerce_freq(target)
 
-        if _is_quarterly(target):
-            smonth = get_rule_month(source)
-            tmonth = get_rule_month(target)
+    # Fast path for identical source/target with freq that allows self-upsampling
+    if s == t:
+        if (
+            s in _FREQS_DAILY_TO
+            or s in _FREQS_HOURLY_TO
+            or s in _FREQS_MIN_TO
+            or s in _FREQS_S_TO
+            or s in _FREQS_MS_TO
+            or s in _FREQS_US_TO
+            or s in _FREQS_NS_TO
+        ):
+            return True
+
+    if _is_annual(s):
+        if _is_annual(t):
+            return get_rule_month(s) == get_rule_month(t)
+        if _is_quarterly(t):
+            smonth = get_rule_month(s)
+            tmonth = get_rule_month(t)
             return _quarter_months_conform(smonth, tmonth)
-        return target in {"D", "C", "B", "M", "h", "min", "s", "ms", "us", "ns"}
-    elif _is_quarterly(source):
-        return target in {"D", "C", "B", "M", "h", "min", "s", "ms", "us", "ns"}
-    elif _is_monthly(source):
-        return target in {"D", "C", "B", "h", "min", "s", "ms", "us", "ns"}
-    elif _is_weekly(source):
-        return target in {source, "D", "C", "B", "h", "min", "s", "ms", "us", "ns"}
-    elif source == "B":
-        return target in {"D", "C", "B", "h", "min", "s", "ms", "us", "ns"}
-    elif source == "C":
-        return target in {"D", "C", "B", "h", "min", "s", "ms", "us", "ns"}
-    elif source == "D":
-        return target in {"D", "C", "B", "h", "min", "s", "ms", "us", "ns"}
-    elif source == "h":
-        return target in {"h", "min", "s", "ms", "us", "ns"}
-    elif source == "min":
-        return target in {"min", "s", "ms", "us", "ns"}
-    elif source == "s":
-        return target in {"s", "ms", "us", "ns"}
-    elif source == "ms":
-        return target in {"ms", "us", "ns"}
-    elif source == "us":
-        return target in {"us", "ns"}
-    elif source == "ns":
-        return target in {"ns"}
+        return t in _FREQS_ANNUAL_TO
+    elif _is_quarterly(s):
+        return t in _FREQS_QUARTERLY_TO
+    elif _is_monthly(s):
+        return t in _FREQS_MONTHLY_TO
+    elif _is_weekly(s):
+        return t in {s, *(_FREQS_DAILY_TO)}
+    elif s in {"B", "C", "D"}:
+        return t in _FREQS_DAILY_TO
+    elif s == "h":
+        return t in _FREQS_HOURLY_TO
+    elif s == "min":
+        return t in _FREQS_MIN_TO
+    elif s == "s":
+        return t in _FREQS_S_TO
+    elif s == "ms":
+        return t in _FREQS_MS_TO
+    elif s == "us":
+        return t in _FREQS_US_TO
+    elif s == "ns":
+        return t in _FREQS_NS_TO
     else:
         return False
 
