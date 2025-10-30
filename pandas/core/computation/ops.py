@@ -280,15 +280,11 @@ def _not_in(x, y):
     Compute the vectorized membership of ``x not in y`` if possible,
     otherwise use Python.
     """
-    try:
+    if hasattr(x, "isin"):
         return ~x.isin(y)
-    except AttributeError:
-        if is_list_like(x):
-            try:
-                return ~y.isin(x)
-            except AttributeError:
-                pass
-        return x not in y
+    if is_list_like(x) and hasattr(y, "isin"):
+        return ~y.isin(x)
+    return x not in y
 
 
 CMP_OPS_SYMS = (">", "<", ">=", "<=", "==", "!=", "in", "not in")
@@ -512,8 +508,7 @@ class UnaryOp(Op):
             self.func = _unary_ops_dict[op]
         except KeyError as err:
             raise ValueError(
-                f"Invalid unary operator {op!r}, "
-                f"valid operators are {UNARY_OPS_SYMS}"
+                f"Invalid unary operator {op!r}, valid operators are {UNARY_OPS_SYMS}"
             ) from err
 
     def __call__(self, env) -> MathCall:
