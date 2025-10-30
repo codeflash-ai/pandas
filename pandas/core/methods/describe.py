@@ -95,7 +95,7 @@ def describe_ndframe(
         )
 
     result = describer.describe(percentiles=percentiles)
-    return cast(NDFrameT, result)
+    return cast("NDFrameT", result)
 
 
 class NDFrameDescriberAbstract(ABC):
@@ -207,11 +207,13 @@ def reorder_columns(ldesc: Sequence[Series]) -> list[Hashable]:
     names: list[Hashable] = []
     seen_names: set[Hashable] = set()
     ldesc_indexes = sorted((x.index for x in ldesc), key=len)
+    names_append = names.append
+    seen_names_add = seen_names.add
     for idxnames in ldesc_indexes:
         for name in idxnames:
             if name not in seen_names:
-                seen_names.add(name)
-                names.append(name)
+                seen_names_add(name)
+                names_append(name)
     return names
 
 
