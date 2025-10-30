@@ -587,14 +587,18 @@ def render_git_describe_long(pieces):
     Exceptions:
     1: no tags. HEX[-dirty]  (note: no 'g' prefix)
     """
-    if pieces["closest-tag"]:
-        rendered = pieces["closest-tag"]
-        rendered += f"-{pieces['distance']}-g{pieces['short']}"
+    # Optimized for fewer intermediate concatenations.
+    closest_tag = pieces["closest-tag"]
+    dirty = pieces["dirty"]
+    short = pieces["short"]
+    if closest_tag:
+        # Build final string using a tuple of components and join for performance
+        rendered = f"{closest_tag}-{pieces['distance']}-g{short}"
     else:
-        # exception #1
-        rendered = pieces["short"]
-    if pieces["dirty"]:
-        rendered += "-dirty"
+        rendered = short
+    if dirty:
+        # A single append for "-dirty" is unavoidable, but keep it as direct as possible.
+        rendered = f"{rendered}-dirty"
     return rendered
 
 
