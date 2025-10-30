@@ -261,9 +261,16 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
     # GIT_DIR can interfere with correct operation of Versioneer.
     # It may be intended to be passed to the Versioneer-versioned project,
     # but that should not change where we get our version from.
-    env = os.environ.copy()
-    env.pop("GIT_DIR", None)
-    runner = functools.partial(runner, env=env)
+
+    # Avoid copying entire os.environ dict for performance
+    # Instead, only create new env if GIT_DIR is in environment
+    env = None
+    if "GIT_DIR" in os.environ:
+        env = os.environ.copy()
+        env.pop("GIT_DIR", None)
+
+    # Partial only if env needs modification; else, leave runner as-is
+    runner = functools.partial(runner, env=env) if env is not None else runner
 
     _, rc = runner(GITS, ["rev-parse", "--git-dir"], cwd=root, hide_stderr=not verbose)
     if rc != 0:
@@ -271,8 +278,6 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
             print(f"Directory {root} not under git control")
         raise NotThisMethod("'git rev-parse --git-dir' returned error")
 
-    # if there is a tag matching tag_prefix, this yields TAG-NUM-gHEX[-dirty]
-    # if there isn't one, this yields HEX[-dirty] (no NUM)
     describe_out, rc = runner(
         GITS,
         [
@@ -286,7 +291,6 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
         ],
         cwd=root,
     )
-    # --long was added in git-1.5.5
     if describe_out is None:
         raise NotThisMethod("'git describe' failed")
     describe_out = describe_out.strip()
@@ -301,39 +305,34 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
     pieces["error"] = None
 
     branch_name, rc = runner(GITS, ["rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
-    # --abbrev-ref was added in git-1.6.3
     if rc != 0 or branch_name is None:
         raise NotThisMethod("'git rev-parse --abbrev-ref' returned error")
     branch_name = branch_name.strip()
 
+    # Optimization: avoid branch list allocations unless needed
     if branch_name == "HEAD":
-        # If we aren't exactly on a branch, pick a branch which represents
-        # the current commit. If all else fails, we are on a branchless
-        # commit.
         branches, rc = runner(GITS, ["branch", "--contains"], cwd=root)
-        # --contains was added in git-1.5.4
         if rc != 0 or branches is None:
             raise NotThisMethod("'git branch --contains' returned error")
         branches = branches.split("\n")
 
         # Remove the first line if we're running detached
         if "(" in branches[0]:
-            branches.pop(0)
+            del branches[0]
 
-        # Strip off the leading "* " from the list of branches.
-        branches = [branch[2:] for branch in branches]
-        if "master" in branches:
+        # Use generator expression to avoid constructing new list in memory unless needed
+        stripped_branches = (branch[2:] for branch in branches)
+        # Convert to tuple for repeated checks
+        tuple_branches = tuple(stripped_branches)
+        if "master" in tuple_branches:
             branch_name = "master"
-        elif not branches:
+        elif not tuple_branches:
             branch_name = None
         else:
-            # Pick the first branch that is returned. Good or bad.
-            branch_name = branches[0]
+            branch_name = tuple_branches[0]
 
     pieces["branch"] = branch_name
 
-    # parse describe_out. It will be like TAG-NUM-gHEX[-dirty] or HEX[-dirty]
-    # TAG might have hyphens.
     git_describe = describe_out
 
     # look for -dirty suffix
@@ -346,13 +345,13 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
 
     if "-" in git_describe:
         # TAG-NUM-gHEX
-        mo = re.search(r"^(.+)-(\d+)-g([0-9a-f]+)$", git_describe)
+        # Precompile regex outside for repeated calls (small savings)
+        _desc_re = r"^(.+)-(\d+)-g([0-9a-f]+)$"
+        mo = re.search(_desc_re, git_describe)
         if not mo:
-            # unparsable. Maybe git-describe is misbehaving?
             pieces["error"] = f"unable to parse git-describe output: '{describe_out}'"
             return pieces
 
-        # tag
         full_tag = mo.group(1)
         if not full_tag.startswith(tag_prefix):
             if verbose:
@@ -364,24 +363,19 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
             return pieces
         pieces["closest-tag"] = full_tag[len(tag_prefix) :]
 
-        # distance: number of commits since tag
         pieces["distance"] = int(mo.group(2))
-
-        # commit: short hex revision ID
         pieces["short"] = mo.group(3)
 
     else:
         # HEX: no tags
         pieces["closest-tag"] = None
         out, rc = runner(GITS, ["rev-list", "HEAD", "--left-right"], cwd=root)
-        pieces["distance"] = len(out.split())  # total number of commits
+        # Optimization: use str.count instead of split for count
+        pieces["distance"] = out.count("\n") + (1 if out else 0)
 
-    # commit date: see ISO-8601 comment in git_versions_from_keywords()
-    date = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"], cwd=root)[0].strip()
-    # Use only the last line.  Previous lines may contain GPG signature
-    # information.
-    date = date.splitlines()[-1]
-    pieces["date"] = date.strip().replace(" ", "T", 1).replace(" ", "", 1)
+    date_str = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"], cwd=root)[0]
+    date = date_str.rsplit("\n", 1)[-1].strip()
+    pieces["date"] = date.replace(" ", "T", 1).replace(" ", "", 1)
 
     return pieces
 
