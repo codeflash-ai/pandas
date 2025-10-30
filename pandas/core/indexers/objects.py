@@ -399,11 +399,21 @@ class FixedForwardWindowIndexer(BaseIndexer):
         if step is None:
             step = 1
 
+        # Optimize: avoid unnecessary np.clip if window_size == 0 or if the full window is always in bounds.
         start = np.arange(0, num_values, step, dtype="int64")
-        end = start + self.window_size
-        if self.window_size:
-            end = np.clip(end, 0, num_values)
+        win_size = self.window_size
 
+        # Pre-checks for fast path: skip np.clip if it is not needed.
+        # Otherwise, clip once for all in end array.
+        end = start + win_size
+        if win_size:
+            max_val = num_values
+            # Only clip if needed: if win_size > 0 and there is possibility of out-of-bounds
+            # Use out='none' to avoid unnecessary copy if possible
+            # (np.clip returns original array if no values are clipped)
+            if end.size and (end[-1] > max_val or end[0] < 0):
+                # Use out parameter for in-place clipping to avoid an allocation
+                np.clip(end, 0, max_val, out=end)
         return start, end
 
 
@@ -478,9 +488,9 @@ class GroupbyIndexer(BaseIndexer):
             )
             start = start.astype(np.int64)
             end = end.astype(np.int64)
-            assert len(start) == len(
-                end
-            ), "these should be equal in length from get_window_bounds"
+            assert len(start) == len(end), (
+                "these should be equal in length from get_window_bounds"
+            )
             # Cannot use groupby_indices as they might not be monotonic with the object
             # we're rolling over
             window_indices = np.arange(
