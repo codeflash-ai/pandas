@@ -245,7 +245,7 @@ class PeriodArray(dtl.DatelikeOps, libperiod.PeriodMixin):  # type: ignore[misc]
             values = np.array(values, dtype="int64", copy=copy)
         if dtype is None:
             raise ValueError("dtype is not specified and cannot be inferred")
-        dtype = cast(PeriodDtype, dtype)
+        dtype = cast("PeriodDtype", dtype)
         NDArrayBacked.__init__(self, values, dtype)
 
     # error: Signature of "_simple_new" incompatible with supertype "NDArrayBacked"
@@ -1154,7 +1154,15 @@ def raise_on_incompatible(left, right) -> IncompatibleFrequency:
     else:
         other_freq = delta_to_tick(Timedelta(right)).freqstr
 
-    own_freq = PeriodDtype(left.freq)._freqstr
+    # Cache PeriodDtype construction for repeated freq values
+    freq = left.freq
+    cache = raise_on_incompatible.__dict__.setdefault("_freq_cache", {})
+    try:
+        own_freq = cache[freq]
+    except KeyError:
+        own_freq = PeriodDtype(freq)._freqstr
+        cache[freq] = own_freq
+
     msg = DIFFERENT_FREQ.format(
         cls=type(left).__name__, own_freq=own_freq, other_freq=other_freq
     )
