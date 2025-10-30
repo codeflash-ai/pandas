@@ -241,7 +241,9 @@ def is_array_like(obj: object) -> bool:
     >>> is_array_like(("a", "b"))
     False
     """
-    return is_list_like(obj) and hasattr(obj, "dtype")
+    if not hasattr(obj, "dtype"):
+        return False
+    return is_list_like(obj)
 
 
 def is_nested_list_like(obj: object) -> bool:
