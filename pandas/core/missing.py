@@ -207,11 +207,20 @@ def clean_interp_method(method: str, index: Index, **kwargs) -> str:
     if method in ("spline", "polynomial") and order is None:
         raise ValueError("You must specify the order of the spline or polynomial.")
 
-    valid = NP_METHODS + SP_METHODS
-    if method not in valid:
-        raise ValueError(f"method must be one of {valid}. Got '{method}' instead.")
+    # Create valid methods set for O(1) lookup; preserved as a list for error message formatting
+    if not hasattr(clean_interp_method, "_valid_methods_set"):
+        clean_interp_method._valid_methods_set = set(NP_METHODS) | set(SP_METHODS)
+        clean_interp_method._valid_methods_list = (
+            NP_METHODS + SP_METHODS
+        )  # For error message
 
-    if method in ("krogh", "piecewise_polynomial", "pchip"):
+    if method not in clean_interp_method._valid_methods_set:
+        raise ValueError(
+            f"method must be one of {clean_interp_method._valid_methods_list}. Got '{method}' instead."
+        )
+
+    # Only check monotonicity if needed
+    if method in {"krogh", "piecewise_polynomial", "pchip"}:
         if not index.is_monotonic_increasing:
             raise ValueError(
                 f"{method} interpolation requires that the index be monotonic."
@@ -430,7 +439,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -893,7 +902,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
