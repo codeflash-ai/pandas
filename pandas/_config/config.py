@@ -122,6 +122,12 @@ class OptionError(AttributeError, KeyError):
 
 
 def _get_single_key(pat: str) -> str:
+    # Fast path: check for exact match before _select_options (which sorts all keys).
+    # This avoids overhead for the most common case.
+    if pat in _registered_options:
+        _warn_if_deprecated(pat)
+        key = _translate_key(pat)
+        return key
     keys = _select_options(pat)
     if len(keys) == 0:
         _warn_if_deprecated(pat)
@@ -129,49 +135,38 @@ def _get_single_key(pat: str) -> str:
     if len(keys) > 1:
         raise OptionError("Pattern matched multiple keys")
     key = keys[0]
-
     _warn_if_deprecated(key)
-
     key = _translate_key(key)
-
     return key
 
 
 def get_option(pat: str) -> Any:
     """
     Retrieve the value of the specified option.
-
     Parameters
     ----------
     pat : str
         Regexp which should match a single option.
-
         .. warning::
-
             Partial matches are supported for convenience, but unless you use the
             full option name (e.g. x.y.z.option_name), your code may break in future
             versions if new options with similar names are introduced.
-
     Returns
     -------
     Any
         The value of the option.
-
     Raises
     ------
     OptionError : if no such option exists
-
     See Also
     --------
     set_option : Set the value of the specified option or options.
     reset_option : Reset one or more options to their default value.
     describe_option : Print the description for one or more registered options.
-
     Notes
     -----
     For all available options, please view the :ref:`User Guide <options.available>`
     or use ``pandas.describe_option()``.
-
     Examples
     --------
     >>> pd.get_option("display.max_columns")  # doctest: +SKIP
@@ -179,9 +174,12 @@ def get_option(pat: str) -> Any:
     """
     key = _get_single_key(pat)
 
-    # walk the nested dict
-    root, k = _get_root(key)
-    return root[k]
+    # Optimize _get_root for flat (single-level) keys to avoid split/join overhead
+    if "." not in key:
+        return _global_config[key]
+    else:
+        root, k = _get_root(key)
+        return root[k]
 
 
 def set_option(*args) -> None:
@@ -756,7 +754,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
