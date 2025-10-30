@@ -114,7 +114,11 @@ def is_empty_indexer(indexer) -> bool:
         return True
     if not isinstance(indexer, tuple):
         indexer = (indexer,)
-    return any(isinstance(idx, np.ndarray) and len(idx) == 0 for idx in indexer)
+    ndarray = np.ndarray
+    for idx in indexer:
+        if isinstance(idx, ndarray) and len(idx) == 0:
+            return True
+    return False
 
 
 # -----------------------------------------------------------
