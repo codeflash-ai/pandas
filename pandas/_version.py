@@ -126,18 +126,46 @@ def versions_from_parentdir(parentdir_prefix, root, verbose):
     """
     rootdirs = []
 
-    for _ in range(3):
-        dirname = os.path.basename(root)
-        if dirname.startswith(parentdir_prefix):
-            return {
-                "version": dirname[len(parentdir_prefix) :],
-                "full-revisionid": None,
-                "dirty": False,
-                "error": None,
-                "date": None,
-            }
-        rootdirs.append(root)
-        root = os.path.dirname(root)  # up a level
+    basename = os.path.basename
+    dirname_func = os.path.dirname
+
+    # First iteration
+    dirname = basename(root)
+    if dirname.startswith(parentdir_prefix):
+        return {
+            "version": dirname[len(parentdir_prefix) :],
+            "full-revisionid": None,
+            "dirty": False,
+            "error": None,
+            "date": None,
+        }
+    rootdirs.append(root)
+    root = dirname_func(root)
+
+    # Second iteration
+    dirname = basename(root)
+    if dirname.startswith(parentdir_prefix):
+        return {
+            "version": dirname[len(parentdir_prefix) :],
+            "full-revisionid": None,
+            "dirty": False,
+            "error": None,
+            "date": None,
+        }
+    rootdirs.append(root)
+    root = dirname_func(root)
+
+    # Third iteration
+    dirname = basename(root)
+    if dirname.startswith(parentdir_prefix):
+        return {
+            "version": dirname[len(parentdir_prefix) :],
+            "full-revisionid": None,
+            "dirty": False,
+            "error": None,
+            "date": None,
+        }
+    rootdirs.append(root)
 
     if verbose:
         print(
