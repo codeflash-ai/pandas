@@ -64,9 +64,9 @@ class FrozenList(PandasObject, list):
         FrozenList
             The collection difference between self and other.
         """
-        other = set(other)
-        temp = [x for x in self if x not in other]
-        return type(self)(temp)
+        other_set = set(other)
+        # Optimize by using list comprehension with set lookup
+        return type(self)([x for x in self if x not in other_set])
 
     # TODO: Consider deprecating these in favor of `union` (xref gh-15506)
     # error: Incompatible types in assignment (expression has type
