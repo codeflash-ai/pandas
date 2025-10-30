@@ -398,9 +398,10 @@ class IntervalIndex(ExtensionIndex):
         return MultiIndex.from_arrays([self.left, self.right], names=["left", "right"])
 
     def __reduce__(self):
+        _data = self._data
         d = {
-            "left": self.left,
-            "right": self.right,
+            "left": _data.left,
+            "right": _data.right,
             "closed": self.closed,
             "name": self.name,
         }
