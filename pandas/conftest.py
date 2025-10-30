@@ -84,6 +84,20 @@ if TYPE_CHECKING:
         Iterator,
     )
 
+_radd = ops.radd
+
+_rsub = ops.rsub
+
+_rmul = ops.rmul
+
+_rtruediv = ops.rtruediv
+
+_rfloordiv = ops.rfloordiv
+
+_rmod = ops.rmod
+
+_rpow = ops.rpow
+
 try:
     import pyarrow as pa
 except ImportError:
@@ -1006,19 +1020,19 @@ def all_binary_operators(request):
 @pytest.fixture(
     params=[
         operator.add,
-        ops.radd,
+        _radd,
         operator.sub,
-        ops.rsub,
+        _rsub,
         operator.mul,
-        ops.rmul,
+        _rmul,
         operator.truediv,
-        ops.rtruediv,
+        _rtruediv,
         operator.floordiv,
-        ops.rfloordiv,
+        _rfloordiv,
         operator.mod,
-        ops.rmod,
+        _rmod,
         operator.pow,
-        ops.rpow,
+        _rpow,
     ]
 )
 def all_arithmetic_functions(request):
