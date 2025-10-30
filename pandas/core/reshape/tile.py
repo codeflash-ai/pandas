@@ -655,7 +655,9 @@ def _round_frac(x, precision: int):
     else:
         frac, whole = np.modf(x)
         if whole == 0:
-            digits = -int(np.floor(np.log10(abs(frac)))) - 1 + precision
+            from math import floor, log10
+
+            digits = -int(floor(log10(abs(frac)))) - 1 + precision
         else:
             digits = precision
         return np.around(x, digits)
