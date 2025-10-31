@@ -95,7 +95,7 @@ def describe_ndframe(
         )
 
     result = describer.describe(percentiles=percentiles)
-    return cast(NDFrameT, result)
+    return cast("NDFrameT", result)
 
 
 class NDFrameDescriberAbstract(ABC):
@@ -217,7 +217,6 @@ def reorder_columns(ldesc: Sequence[Series]) -> list[Hashable]:
 
 def describe_numeric_1d(series: Series, percentiles: Sequence[float]) -> Series:
     """Describe series containing numerical data.
-
     Parameters
     ----------
     series : Series
@@ -228,19 +227,16 @@ def describe_numeric_1d(series: Series, percentiles: Sequence[float]) -> Series:
     from pandas import Series
 
     formatted_percentiles = format_percentiles(percentiles)
-
     stat_index = ["count", "mean", "std", "min"] + formatted_percentiles + ["max"]
     d = (
         [series.count(), series.mean(), series.std(), series.min()]
         + series.quantile(percentiles).tolist()
         + [series.max()]
     )
-    # GH#48340 - always return float on non-complex numeric data
     dtype: DtypeObj | None
     if isinstance(series.dtype, ExtensionDtype):
         if isinstance(series.dtype, ArrowDtype):
             if series.dtype.kind == "m":
-                # GH53001: describe timedeltas with object dtype
                 dtype = None
             else:
                 import pyarrow as pa
@@ -249,7 +245,6 @@ def describe_numeric_1d(series: Series, percentiles: Sequence[float]) -> Series:
         else:
             dtype = Float64Dtype()
     elif series.dtype.kind in "iufb":
-        # i.e. numeric but exclude complex dtype
         dtype = np.dtype("float")
     else:
         dtype = None
@@ -261,7 +256,6 @@ def describe_categorical_1d(
     percentiles_ignored: Sequence[float],
 ) -> Series:
     """Describe series containing categorical data.
-
     Parameters
     ----------
     data : Series
@@ -276,13 +270,9 @@ def describe_categorical_1d(
         top, freq = objcounts.index[0], objcounts.iloc[0]
         dtype = None
     else:
-        # If the DataFrame is empty, set 'top' and 'freq' to None
-        # to maintain output shape consistency
         top, freq = np.nan, np.nan
         dtype = "object"
-
     result = [data.count(), count_unique, top, freq]
-
     from pandas import Series
 
     return Series(result, index=names, name=data.name, dtype=dtype)
@@ -290,7 +280,6 @@ def describe_categorical_1d(
 
 def describe_timestamp_1d(data: Series, percentiles: Sequence[float]) -> Series:
     """Describe series containing datetime64 dtype.
-
     Parameters
     ----------
     data : Series
@@ -298,11 +287,9 @@ def describe_timestamp_1d(data: Series, percentiles: Sequence[float]) -> Series:
     percentiles : list-like of numbers
         The percentiles to include in the output.
     """
-    # GH-30164
     from pandas import Series
 
     formatted_percentiles = format_percentiles(percentiles)
-
     stat_index = ["count", "mean", "min"] + formatted_percentiles + ["max"]
     d = (
         [data.count(), data.mean(), data.min()]
@@ -316,19 +303,21 @@ def select_describe_func(
     data: Series,
 ) -> Callable:
     """Select proper function for describing series based on data type.
-
     Parameters
     ----------
     data : Series
         Series to be described.
     """
-    if is_bool_dtype(data.dtype):
+    dtype = data.dtype
+    kind = getattr(dtype, "kind", None)
+    # Reuse dtype/kind and order for early exit on common cases
+    if is_bool_dtype(dtype):
         return describe_categorical_1d
     elif is_numeric_dtype(data):
         return describe_numeric_1d
-    elif data.dtype.kind == "M" or isinstance(data.dtype, DatetimeTZDtype):
+    elif kind == "M" or isinstance(dtype, DatetimeTZDtype):
         return describe_timestamp_1d
-    elif data.dtype.kind == "m":
+    elif kind == "m":
         return describe_numeric_1d
     else:
         return describe_categorical_1d
