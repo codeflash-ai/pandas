@@ -177,6 +177,20 @@ def get_option(pat: str) -> Any:
     >>> pd.get_option("display.max_columns")  # doctest: +SKIP
     4
     """
+    # Fast-path: direct access if fully-qualified registered key (i.e., no regex or partial match)
+    global _global_config, _registered_options
+    if pat in _registered_options:
+        try:
+            # Use the same key translation as _get_root expects
+            path = pat.split(".")
+            cursor = _global_config
+            for p in path[:-1]:
+                cursor = cursor[p]
+            return cursor[path[-1]]
+        except (KeyError, TypeError):
+            # Fall back to slow path to raise OptionError and warn as needed
+            pass
+
     key = _get_single_key(pat)
 
     # walk the nested dict
@@ -756,7 +770,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
