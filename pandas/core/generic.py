@@ -6076,11 +6076,17 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         """
         # Note: obj.x will always call obj.__getattribute__('x') prior to
         # calling obj.__getattr__('x').
+        # Local variable lookups to minimize attribute access time
+        _internal_names_set = self._internal_names_set
+        _metadata = self._metadata
+        _accessors = self._accessors
+        _info_axis = self._info_axis
+
         if (
-            name not in self._internal_names_set
-            and name not in self._metadata
-            and name not in self._accessors
-            and self._info_axis._can_hold_identifiers_and_holds_name(name)
+            name not in _internal_names_set
+            and name not in _metadata
+            and name not in _accessors
+            and _info_axis._can_hold_identifiers_and_holds_name(name)
         ):
             return self[name]
         return object.__getattribute__(self, name)
