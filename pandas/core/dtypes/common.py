@@ -185,51 +185,39 @@ def is_object_dtype(arr_or_dtype) -> bool:
 def is_sparse(arr) -> bool:
     """
     Check whether an array-like is a 1-D pandas sparse array.
-
     .. deprecated:: 2.1.0
         Use isinstance(dtype, pd.SparseDtype) instead.
-
     Check that the one-dimensional array-like is a pandas sparse array.
     Returns True if it is a pandas sparse array, not another type of
     sparse array.
-
     Parameters
     ----------
     arr : array-like
         Array-like to check.
-
     Returns
     -------
     bool
         Whether or not the array-like is a pandas sparse array.
-
     See Also
     --------
     api.types.SparseDtype : The dtype object for pandas sparse arrays.
-
     Examples
     --------
     Returns `True` if the parameter is a 1-D pandas sparse array.
-
     >>> from pandas.api.types import is_sparse
     >>> is_sparse(pd.arrays.SparseArray([0, 0, 1, 0]))
     True
     >>> is_sparse(pd.Series(pd.arrays.SparseArray([0, 0, 1, 0])))
     True
-
     Returns `False` if the parameter is not sparse.
-
     >>> is_sparse(np.array([0, 0, 1, 0]))
     False
     >>> is_sparse(pd.Series([0, 1, 0, 0]))
     False
-
     Returns `False` if the parameter is not a pandas sparse array.
-
     >>> from scipy.sparse import bsr_matrix
     >>> is_sparse(bsr_matrix([0, 1, 0, 0]))
     False
-
     Returns `False` if the parameter has more than one dimension.
     """
     warnings.warn(
@@ -239,8 +227,10 @@ def is_sparse(arr) -> bool:
         stacklevel=2,
     )
 
-    dtype = getattr(arr, "dtype", arr)
-    return isinstance(dtype, SparseDtype)
+    # Optimize getattr access by directly checking attribute existence
+    # This avoids the cost of calling getattr if not needed.
+    arr_dtype = arr.dtype if hasattr(arr, "dtype") else arr
+    return isinstance(arr_dtype, SparseDtype)
 
 
 def is_scipy_sparse(arr) -> bool:
@@ -1889,13 +1879,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1931,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
