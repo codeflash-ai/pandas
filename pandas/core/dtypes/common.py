@@ -1212,17 +1212,14 @@ def needs_i8_conversion(dtype: DtypeObj | None) -> bool:
 def is_numeric_dtype(arr_or_dtype) -> bool:
     """
     Check whether the provided array or dtype is of a numeric dtype.
-
     Parameters
     ----------
     arr_or_dtype : array-like or dtype
         The array or dtype to check.
-
     Returns
     -------
     boolean
         Whether or not the array or dtype is of a numeric dtype.
-
     See Also
     --------
     api.types.is_integer_dtype: Check whether the provided array or dtype
@@ -1231,7 +1228,6 @@ def is_numeric_dtype(arr_or_dtype) -> bool:
         or dtype is of an unsigned integer dtype.
     api.types.is_signed_integer_dtype: Check whether the provided array
         or dtype is of an signed integer dtype.
-
     Examples
     --------
     >>> from pandas.api.types import is_numeric_dtype
@@ -1256,6 +1252,32 @@ def is_numeric_dtype(arr_or_dtype) -> bool:
     >>> is_numeric_dtype(np.array([], dtype=np.timedelta64))
     False
     """
+    # Fast path for common dtype/array cases, reduces function call overhead
+    typ = arr_or_dtype
+    try:
+        dtype_type = getattr(typ, "dtype", None)
+        if dtype_type is not None:
+            typ = dtype_type
+        # If already a numpy dtype or Python type, check directly
+        if isinstance(typ, np.dtype):
+            if issubclass(typ.type, np.number) and not issubclass(
+                typ.type, (np.datetime64, np.timedelta64)
+            ):
+                return True
+            elif issubclass(typ.type, np.bool_):
+                return True
+            return False
+        elif isinstance(typ, type):
+            dt = np.dtype(typ)
+            if issubclass(dt.type, np.number) and not issubclass(
+                dt.type, (np.datetime64, np.timedelta64)
+            ):
+                return True
+            elif issubclass(dt.type, np.bool_):
+                return True
+            return False
+    except Exception:
+        pass
     return _is_dtype_type(
         arr_or_dtype, _classes_and_not_datetimelike(np.number, np.bool_)
     ) or _is_dtype(
@@ -1356,30 +1378,24 @@ def is_float_dtype(arr_or_dtype) -> bool:
 def is_bool_dtype(arr_or_dtype) -> bool:
     """
     Check whether the provided array or dtype is of a boolean dtype.
-
     This function verifies whether a given object is a boolean data type. The input
     can be an array or a dtype object. Accepted array types include instances
     of ``np.array``, ``pd.Series``, ``pd.Index``, and similar array-like structures.
-
     Parameters
     ----------
     arr_or_dtype : array-like or dtype
         The array or dtype to check.
-
     Returns
     -------
     boolean
         Whether or not the array or dtype is of a boolean dtype.
-
     See Also
     --------
     api.types.is_bool : Check if an object is a boolean.
-
     Notes
     -----
     An ExtensionArray is considered boolean when the ``_is_boolean``
     attribute is set to True.
-
     Examples
     --------
     >>> from pandas.api.types import is_bool_dtype
@@ -1409,15 +1425,24 @@ def is_bool_dtype(arr_or_dtype) -> bool:
     except (TypeError, ValueError):
         return False
 
+    # Fast path for numpy bool dtype
+    try:
+        if isinstance(dtype, np.dtype):
+            if issubclass(dtype.type, np.bool_):
+                return True
+            return False
+        elif isinstance(dtype, type):
+            dt = np.dtype(dtype)
+            if issubclass(dt.type, np.bool_):
+                return True
+            return False
+    except Exception:
+        pass
     if isinstance(dtype, CategoricalDtype):
         arr_or_dtype = dtype.categories
-        # now we use the special definition for Index
-
     if isinstance(arr_or_dtype, ABCIndex):
-        # Allow Index[object] that is all-bools or Index["boolean"]
         if arr_or_dtype.inferred_type == "boolean":
             if not is_bool_dtype(arr_or_dtype.dtype):
-                # GH#52680
                 warnings.warn(
                     "The behavior of is_bool_dtype with an object-dtype Index "
                     "of bool objects is deprecated. In a future version, "
@@ -1429,7 +1454,6 @@ def is_bool_dtype(arr_or_dtype) -> bool:
         return False
     elif isinstance(dtype, ExtensionDtype):
         return getattr(dtype, "_is_boolean", False)
-
     return issubclass(dtype.type, np.bool_)
 
 
@@ -1889,13 +1913,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1965,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
