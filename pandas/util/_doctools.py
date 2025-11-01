@@ -32,8 +32,11 @@ class TablePlotter:
         """
         Calculate table shape considering index levels.
         """
+        # Cache lookups for nlevels to local variables for faster attribute access
+        columns_nlevels = df.columns.nlevels
+        index_nlevels = df.index.nlevels
         row, col = df.shape
-        return row + df.columns.nlevels, col + df.index.nlevels
+        return row + columns_nlevels, col + index_nlevels
 
     def _get_cells(self, left, right, vertical) -> tuple[int, int]:
         """
