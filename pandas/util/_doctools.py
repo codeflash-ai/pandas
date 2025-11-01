@@ -39,13 +39,15 @@ class TablePlotter:
         """
         Calculate appropriate figure size based on left and right data.
         """
+        # Precompute shapes for left to avoid redundant calculations
+        left_shapes = [self._shape(df) for df in left]
+        right_shape = self._shape(right)
         if vertical:
-            # calculate required number of cells
-            vcells = max(sum(self._shape(df)[0] for df in left), self._shape(right)[0])
-            hcells = max(self._shape(df)[1] for df in left) + self._shape(right)[1]
+            vcells = max(sum(shape[0] for shape in left_shapes), right_shape[0])
+            hcells = max(shape[1] for shape in left_shapes) + right_shape[1]
         else:
-            vcells = max([self._shape(df)[0] for df in left] + [self._shape(right)[0]])
-            hcells = sum([self._shape(df)[1] for df in left] + [self._shape(right)[1]])
+            vcells = max([shape[0] for shape in left_shapes] + [right_shape[0]])
+            hcells = sum([shape[1] for shape in left_shapes] + [right_shape[1]])
         return hcells, vcells
 
     def plot(
