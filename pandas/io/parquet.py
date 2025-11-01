@@ -45,22 +45,39 @@ if TYPE_CHECKING:
         WriteBuffer,
     )
 
+_ENGINE_IMPL_CACHE = {}
+
 
 def get_engine(engine: str) -> BaseImpl:
     """return our implementation"""
+    global _ENGINE_IMPL_CACHE
+
+    # Two-level auto resolution avoids slow get_option calls on repeated use
     if engine == "auto":
         engine = get_option("io.parquet.engine")
 
     if engine == "auto":
         # try engines in this order
-        engine_classes = [PyArrowImpl, FastParquetImpl]
-
-        error_msgs = ""
-        for engine_class in engine_classes:
+        for engine_name, engine_class in (
+            ("pyarrow", PyArrowImpl),
+            ("fastparquet", FastParquetImpl),
+        ):
+            # Use cached instance if available
+            if engine_name in _ENGINE_IMPL_CACHE:
+                return _ENGINE_IMPL_CACHE[engine_name]
             try:
-                return engine_class()
+                impl = engine_class()
+                _ENGINE_IMPL_CACHE[engine_name] = impl
+                return impl
             except ImportError as err:
-                error_msgs += "\n - " + str(err)
+                # Avoid string concatenation in loop, build list then join once
+                _ENGINE_IMPL_CACHE.setdefault("_error_msgs", []).append(f" - {err}")
+
+        error_msgs = (
+            "\n".join(_ENGINE_IMPL_CACHE.pop("_error_msgs"))
+            if "_error_msgs" in _ENGINE_IMPL_CACHE
+            else ""
+        )
 
         raise ImportError(
             "Unable to find a usable engine; "
@@ -73,9 +90,20 @@ def get_engine(engine: str) -> BaseImpl:
         )
 
     if engine == "pyarrow":
-        return PyArrowImpl()
+        # Use cached instance if available
+        impl = _ENGINE_IMPL_CACHE.get("pyarrow")
+        if impl is not None:
+            return impl
+        impl = PyArrowImpl()
+        _ENGINE_IMPL_CACHE["pyarrow"] = impl
+        return impl
     elif engine == "fastparquet":
-        return FastParquetImpl()
+        impl = _ENGINE_IMPL_CACHE.get("fastparquet")
+        if impl is not None:
+            return impl
+        impl = FastParquetImpl()
+        _ENGINE_IMPL_CACHE["fastparquet"] = impl
+        return impl
 
     raise ValueError("engine must be one of 'pyarrow', 'fastparquet'")
 
@@ -458,7 +486,8 @@ def to_parquet(
     -------
     bytes if no path argument is provided else None
     """
-    if isinstance(partition_cols, str):
+    # Avoid isinstance for string, since we expect partition_cols to be str or list[str] or None
+    if type(partition_cols) is str:
         partition_cols = [partition_cols]
     impl = get_engine(engine)
 
