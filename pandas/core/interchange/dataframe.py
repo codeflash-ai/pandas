@@ -33,12 +33,27 @@ class PandasDataFrameXchg(DataFrameXchg):
         Constructor - an instance of this (private) class is returned from
         `pd.DataFrame.__dataframe__`.
         """
-        self._df = df.rename(columns=str)
+        if not all(isinstance(col, str) for col in df.columns):
+            self._df = df.rename(columns=str)
+        else:
+            self._df = df
         self._allow_copy = allow_copy
-        for i, _col in enumerate(self._df.columns):
-            rechunked = maybe_rechunk(self._df.iloc[:, i], allow_copy=allow_copy)
-            if rechunked is not None:
-                self._df.isetitem(i, rechunked)
+        import pandas as pd
+
+        ArrowDtype = getattr(pd, "ArrowDtype", None)
+        if ArrowDtype is not None:
+            for i, dtype in enumerate(self._df.dtypes):
+                if isinstance(dtype, ArrowDtype):
+                    rechunked = maybe_rechunk(
+                        self._df.iloc[:, i], allow_copy=allow_copy
+                    )
+                    if rechunked is not None:
+                        self._df.isetitem(i, rechunked)
+        else:
+            for i, _col in enumerate(self._df.columns):
+                rechunked = maybe_rechunk(self._df.iloc[:, i], allow_copy=allow_copy)
+                if rechunked is not None:
+                    self._df.isetitem(i, rechunked)
 
     def __dataframe__(
         self, nan_as_null: bool = False, allow_copy: bool = True
