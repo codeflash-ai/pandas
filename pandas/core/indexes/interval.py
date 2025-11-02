@@ -1084,13 +1084,11 @@ def _is_valid_endpoint(endpoint) -> bool:
     """
     Helper for interval_range to check if start/end are valid types.
     """
-    return any(
-        [
-            is_number(endpoint),
-            isinstance(endpoint, Timestamp),
-            isinstance(endpoint, Timedelta),
-            endpoint is None,
-        ]
+    return (
+        is_number(endpoint)
+        or isinstance(endpoint, Timestamp)
+        or isinstance(endpoint, Timedelta)
+        or endpoint is None
     )
 
 
@@ -1098,14 +1096,17 @@ def _is_type_compatible(a, b) -> bool:
     """
     Helper for interval_range to check type compat of start/end/freq.
     """
-    is_ts_compat = lambda x: isinstance(x, (Timestamp, BaseOffset))
-    is_td_compat = lambda x: isinstance(x, (Timedelta, BaseOffset))
-    return (
-        (is_number(a) and is_number(b))
-        or (is_ts_compat(a) and is_ts_compat(b))
-        or (is_td_compat(a) and is_td_compat(b))
-        or com.any_none(a, b)
-    )
+    if is_number(a) and is_number(b):
+        return True
+    if isinstance(a, (Timestamp, BaseOffset)) and isinstance(
+        b, (Timestamp, BaseOffset)
+    ):
+        return True
+    if isinstance(a, (Timedelta, BaseOffset)) and isinstance(
+        b, (Timedelta, BaseOffset)
+    ):
+        return True
+    return com.any_none(a, b)
 
 
 def interval_range(
