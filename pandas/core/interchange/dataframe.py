@@ -33,10 +33,39 @@ class PandasDataFrameXchg(DataFrameXchg):
         Constructor - an instance of this (private) class is returned from
         `pd.DataFrame.__dataframe__`.
         """
-        self._df = df.rename(columns=str)
+        # Rename columns to string names only if necessary (avoid unnecessary copy)
+        # If all columns are already string type, skip the rename
+        cols = df.columns
+        if not all(isinstance(col, str) for col in cols):
+            df = df.rename(columns=str)
+        self._df = df
         self._allow_copy = allow_copy
-        for i, _col in enumerate(self._df.columns):
-            rechunked = maybe_rechunk(self._df.iloc[:, i], allow_copy=allow_copy)
+
+        # Optimize rechunk phase: Only loop if any ArrowDtype is present
+        # Avoid repeated attribute lookups, construct .columns and use enumerate only if necessary
+        arrow_cols = [
+            i
+            for i, col in enumerate(self._df.columns)
+            if isinstance(
+                self._df.iloc[:, i].dtype,
+                getattr(self._df, "iloc", None) and self._df.iloc[:, i].dtype.__class__,
+            )
+            and hasattr(self._df.iloc[:, i].dtype, "__module__")
+            and "pandas" in self._df.iloc[:, i].dtype.__module__
+            and getattr(self._df.iloc[:, i].dtype, "__name__", "") == "ArrowDtype"
+        ]
+        # Fallback to regular dtype check for 3.0+ pandas or if above fails
+        if not arrow_cols:
+            arrow_cols = [
+                i
+                for i, col in enumerate(self._df.columns)
+                if hasattr(self._df.iloc[:, i].dtype, "type")
+                and self._df.iloc[:, i].dtype.__class__.__name__ == "ArrowDtype"
+            ]
+        # Only iterate over arrow columns and rechunk if necessary
+        for i in arrow_cols:
+            ser = self._df.iloc[:, i]
+            rechunked = maybe_rechunk(ser, allow_copy=allow_copy)
             if rechunked is not None:
                 self._df.isetitem(i, rechunked)
 
