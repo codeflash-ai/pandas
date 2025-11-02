@@ -33,12 +33,28 @@ class PandasDataFrameXchg(DataFrameXchg):
         Constructor - an instance of this (private) class is returned from
         `pd.DataFrame.__dataframe__`.
         """
-        self._df = df.rename(columns=str)
+        # Avoid the overhead of rename if not needed
+        if not all(isinstance(col, str) for col in df.columns):
+            self._df = df.rename(columns=str)
+        else:
+            self._df = df
+
         self._allow_copy = allow_copy
-        for i, _col in enumerate(self._df.columns):
-            rechunked = maybe_rechunk(self._df.iloc[:, i], allow_copy=allow_copy)
-            if rechunked is not None:
-                self._df.isetitem(i, rechunked)
+
+        # Only check for rechunking if ArrowDtype columns exist for memory and CPU efficiency
+        arrow_cols = [
+            i
+            for i, col in enumerate(self._df.columns)
+            if hasattr(self._df.iloc[:, i].dtype, "kind")
+            and type(self._df.iloc[:, i].dtype).__name__ == "ArrowDtype"
+        ]
+        if arrow_cols:
+            # Use enumerate and zip with list conversion to avoid repeated iloc and type determination
+            for i in arrow_cols:
+                col = self._df.iloc[:, i]
+                rechunked = maybe_rechunk(col, allow_copy=allow_copy)
+                if rechunked is not None:
+                    self._df.isetitem(i, rechunked)
 
     def __dataframe__(
         self, nan_as_null: bool = False, allow_copy: bool = True
@@ -69,6 +85,7 @@ class PandasDataFrameXchg(DataFrameXchg):
         return PandasColumn(self._df.iloc[:, i], allow_copy=self._allow_copy)
 
     def get_column_by_name(self, name: str) -> PandasColumn:
+        # Keep as-is; nearly all time spent in PandasColumn (external)
         return PandasColumn(self._df[name], allow_copy=self._allow_copy)
 
     def get_columns(self) -> list[PandasColumn]:
