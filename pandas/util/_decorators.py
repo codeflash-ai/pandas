@@ -83,7 +83,7 @@ def deprecate(
         if alternative.__doc__.count("\n") < 3:
             raise AssertionError(doc_error_msg)
         empty1, summary, empty2, doc_string = alternative.__doc__.split("\n", 3)
-        if empty1 or empty2 and not summary:
+        if empty1 or (empty2 and not summary):
             raise AssertionError(doc_error_msg)
         wrapper.__doc__ = dedent(
             f"""
@@ -211,7 +211,7 @@ def deprecate_kwarg(
                 kwargs[new_arg_name] = new_arg_value
             return func(*args, **kwargs)
 
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _deprecate_kwarg
 
@@ -491,19 +491,21 @@ class Appender:
 def indent(text: str | None, indents: int = 1) -> str:
     if not text or not isinstance(text, str):
         return ""
-    jointext = "".join(["\n"] + ["    "] * indents)
-    return jointext.join(text.split("\n"))
+    prefix = "\n" + "    " * indents
+    if "\n" not in text:
+        return text
+    return text.replace("\n", prefix)
 
 
 __all__ = [
     "Appender",
+    "Substitution",
     "cache_readonly",
     "deprecate",
     "deprecate_kwarg",
     "deprecate_nonkeyword_arguments",
     "doc",
     "future_version_msg",
-    "Substitution",
 ]
 
 
