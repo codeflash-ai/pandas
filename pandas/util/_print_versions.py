@@ -8,6 +8,7 @@ import platform
 import struct
 import sys
 from typing import TYPE_CHECKING
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from pandas._typing import JSONSerializable
@@ -19,6 +20,7 @@ from pandas.compat._optional import (
 )
 
 
+@lru_cache(maxsize=1)
 def _get_commit_hash() -> str | None:
     """
     Use vendored versioneer code to get git hash, which handles
