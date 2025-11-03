@@ -573,10 +573,7 @@ make_attribute_wrapper(IlocType, "obj", "obj")
 
 @overload_attribute(SeriesType, "iloc")
 def series_iloc(series):
-    def get(series):
-        return _iLocIndexer(series)
-
-    return get
+    return lambda series: _iLocIndexer(series)
 
 
 @overload(operator.getitem)
