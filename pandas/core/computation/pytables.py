@@ -408,11 +408,12 @@ class UnaryOp(ops.UnaryOp):
         operand = operand.prune(klass)
 
         if operand is not None and (
-            issubclass(klass, ConditionBinOp)
-            and operand.condition is not None
-            or not issubclass(klass, ConditionBinOp)
-            and issubclass(klass, FilterBinOp)
-            and operand.filter is not None
+            (issubclass(klass, ConditionBinOp) and operand.condition is not None)
+            or (
+                not issubclass(klass, ConditionBinOp)
+                and issubclass(klass, FilterBinOp)
+                and operand.filter is not None
+            )
         ):
             return operand.invert()
         return None
@@ -424,12 +425,24 @@ class PyTablesExprVisitor(BaseExprVisitor):
 
     def __init__(self, env, engine, parser, **kwargs) -> None:
         super().__init__(env, engine, parser)
+
+        # Use a factory function for proper closure binding, avoids lambda in loop
+        def make_visit_bin(bin_op):
+            bin_node = self.binary_op_nodes_map[bin_op]
+
+            def visit_bin(self, node, bin_op=bin_op):
+                # Bind kwargs once to avoid repeated partials
+                return partial(BinOp, bin_op, **kwargs)
+
+            visit_bin.__name__ = f"visit_{bin_node}"
+            return visit_bin
+
         for bin_op in self.binary_ops:
             bin_node = self.binary_op_nodes_map[bin_op]
             setattr(
                 self,
                 f"visit_{bin_node}",
-                lambda node, bin_op=bin_op: partial(BinOp, bin_op, **kwargs),
+                make_visit_bin(bin_op).__get__(self, type(self)),
             )
 
     def visit_UnaryOp(self, node, **kwargs) -> ops.Term | UnaryOp | None:
@@ -475,7 +488,8 @@ class PyTablesExprVisitor(BaseExprVisitor):
         value = node.value
 
         ctx = type(node.ctx)
-        if ctx == ast.Load:
+        if ctx is ast.Load:
+            # resolve the value
             # resolve the value
             resolved = self.visit(value)
 

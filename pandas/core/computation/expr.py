@@ -402,6 +402,9 @@ class BaseExprVisitor(ast.NodeVisitor):
         self.preparser = preparser
         self.assigner = None
 
+        # Cache for visitor methods based on node type name for fast lookup
+        self._visitor_method_cache: dict[str, callable] = {}
+
     def visit(self, node, **kwargs):
         if isinstance(node, str):
             clean = self.preparser(node)
@@ -412,8 +415,13 @@ class BaseExprVisitor(ast.NodeVisitor):
                     e.msg = "Python keyword not valid identifier in numexpr query"
                 raise e
 
-        method = f"visit_{type(node).__name__}"
-        visitor = getattr(self, method)
+        node_type = type(node).__name__
+        # Use cached visitor or fetch and cache.
+        visitor = self._visitor_method_cache.get(node_type)
+        if visitor is None:
+            method = f"visit_{node_type}"
+            visitor = getattr(self, method)
+            self._visitor_method_cache[node_type] = visitor
         return visitor(node, **kwargs)
 
     def visit_Module(self, node, **kwargs):
@@ -512,8 +520,7 @@ class BaseExprVisitor(ast.NodeVisitor):
             )
 
         if self.engine != "pytables" and (
-            res.op in CMP_OPS_SYMS
-            and getattr(lhs, "is_datetime", False)
+            (res.op in CMP_OPS_SYMS and getattr(lhs, "is_datetime", False))
             or getattr(rhs, "is_datetime", False)
         ):
             # all date ops must be done in python bc numexpr doesn't work
@@ -699,7 +706,7 @@ class BaseExprVisitor(ast.NodeVisitor):
                 if not isinstance(key, ast.keyword):
                     # error: "expr" has no attribute "id"
                     raise ValueError(
-                        "keyword error in function call " f"'{node.func.id}'"  # type: ignore[attr-defined]
+                        f"keyword error in function call '{node.func.id}'"  # type: ignore[attr-defined]
                     )
 
                 if key.arg:
