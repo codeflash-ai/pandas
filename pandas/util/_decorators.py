@@ -62,13 +62,8 @@ def deprecate(
     klass = klass or FutureWarning
     warning_msg = msg or f"{name} is deprecated, use {alt_name} instead."
 
-    @wraps(alternative)
-    def wrapper(*args, **kwargs) -> Callable[..., Any]:
-        warnings.warn(warning_msg, klass, stacklevel=stacklevel)
-        return alternative(*args, **kwargs)
-
-    # adding deprecated directive to the docstring
-    msg = msg or f"Use `{alt_name}` instead."
+    # Precompute docstring assignment if possible to avoid checks on each call
+    use_docstring = False
     doc_error_msg = (
         "deprecate needs a correctly formatted docstring in "
         "the target function (should have a one liner short "
@@ -76,24 +71,34 @@ def deprecate(
         f"line). Found:\n{alternative.__doc__}"
     )
 
-    # when python is running in optimized mode (i.e. `-OO`), docstrings are
-    # removed, so we check that a docstring with correct formatting is used
-    # but we allow empty docstrings
-    if alternative.__doc__:
-        if alternative.__doc__.count("\n") < 3:
+    doc_to_set = None
+    alt_doc = alternative.__doc__
+    if alt_doc:
+        split_lines = alt_doc.split("\n", 3)
+        if len(split_lines) < 4:
             raise AssertionError(doc_error_msg)
-        empty1, summary, empty2, doc_string = alternative.__doc__.split("\n", 3)
-        if empty1 or empty2 and not summary:
+        empty1, summary, empty2, doc_string = split_lines
+        if empty1 or (empty2 and not summary):
             raise AssertionError(doc_error_msg)
-        wrapper.__doc__ = dedent(
+        doc_to_set = dedent(
             f"""
-        {summary.strip()}
+{summary.strip()}
 
-        .. deprecated:: {version}
-            {msg}
+.. deprecated:: {version}
+    {msg or f"Use `{alt_name}` instead."}
 
-        {dedent(doc_string)}"""
+{dedent(doc_string)}"""
         )
+        use_docstring = True
+
+    @wraps(alternative)
+    def wrapper(*args, **kwargs) -> Any:
+        warnings.warn(warning_msg, klass, stacklevel=stacklevel)
+        return alternative(*args, **kwargs)
+
+    if use_docstring and doc_to_set is not None:
+        wrapper.__doc__ = doc_to_set
+
     # error: Incompatible return value type (got "Callable[[VarArg(Any), KwArg(Any)],
     # Callable[...,Any]]", expected "Callable[[F], F]")
     return wrapper  # type: ignore[return-value]
@@ -211,7 +216,7 @@ def deprecate_kwarg(
                 kwargs[new_arg_name] = new_arg_value
             return func(*args, **kwargs)
 
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _deprecate_kwarg
 
@@ -497,13 +502,13 @@ def indent(text: str | None, indents: int = 1) -> str:
 
 __all__ = [
     "Appender",
+    "Substitution",
     "cache_readonly",
     "deprecate",
     "deprecate_kwarg",
     "deprecate_nonkeyword_arguments",
     "doc",
     "future_version_msg",
-    "Substitution",
 ]
 
 
