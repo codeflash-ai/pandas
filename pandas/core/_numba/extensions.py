@@ -434,6 +434,15 @@ def box_series(typ, val, c):
 # Add common series reductions (e.g. mean, sum),
 # and also add common binops (e.g. add, sub, mul, div)
 def generate_series_reduction(ser_reduction, ser_method):
+    cache = getattr(generate_series_reduction, "_overload_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(generate_series_reduction, "_overload_cache", cache)
+
+    cache_key = (ser_reduction, id(ser_method))
+    if cache_key in cache:
+        return cache[cache_key]
+
     @overload_method(SeriesType, ser_reduction)
     def series_reduction(series):
         def series_reduction_impl(series):
@@ -441,6 +450,7 @@ def generate_series_reduction(ser_reduction, ser_method):
 
         return series_reduction_impl
 
+    cache[cache_key] = series_reduction
     return series_reduction
 
 
