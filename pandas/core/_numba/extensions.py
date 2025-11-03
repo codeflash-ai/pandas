@@ -44,6 +44,10 @@ from pandas.core.series import Series
 if TYPE_CHECKING:
     from pandas._typing import Self
 
+_str_conversion = lambda x: str(x)
+
+_identity = lambda x: x
+
 
 # Helper function to hack around fact that Index casts numpy string dtype to object
 #
@@ -282,9 +286,9 @@ def maybe_cast_str_impl(x):
     """Converts numba UnicodeCharSeq (numpy string scalar) -> unicode type (string).
     Is a no-op for other types."""
     if isinstance(x, types.UnicodeCharSeq):
-        return lambda x: str(x)
+        return _str_conversion
     else:
-        return lambda x: x
+        return _identity
 
 
 @unbox(IndexType)
