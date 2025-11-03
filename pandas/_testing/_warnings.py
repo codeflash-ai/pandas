@@ -105,37 +105,42 @@ def assert_produces_warning(
         try:
             yield w
         finally:
-            if expected_warning:
-                if isinstance(expected_warning, tuple) and must_find_all_warnings:
-                    match = (
-                        match
-                        if isinstance(match, tuple)
-                        else (match,) * len(expected_warning)
-                    )
-                    for warning_type, warning_match in zip(expected_warning, match):
-                        _assert_caught_expected_warnings(
-                            caught_warnings=w,
-                            expected_warning=warning_type,
-                            match=warning_match,
-                            check_stacklevel=check_stacklevel,
-                        )
-                else:
-                    expected_warning = cast(
-                        Union[type[Warning], tuple[type[Warning], ...]],
-                        expected_warning,
-                    )
-                    match = (
-                        "|".join(m for m in match if m)
-                        if isinstance(match, tuple)
-                        else match
-                    )
-                    _assert_caught_expected_warnings(
+            if not expected_warning:
+                if raise_on_extra_warnings:
+                    _assert_caught_no_extra_warnings(
                         caught_warnings=w,
                         expected_warning=expected_warning,
-                        match=match,
+                    )
+            elif isinstance(expected_warning, tuple) and must_find_all_warnings:
+                match = (
+                    match
+                    if isinstance(match, tuple)
+                    else (match,) * len(expected_warning)
+                )
+                for warning_type, warning_match in zip(expected_warning, match):
+                    _assert_caught_expected_warnings(
+                        caught_warnings=w,
+                        expected_warning=warning_type,
+                        match=warning_match,
                         check_stacklevel=check_stacklevel,
                     )
-            if raise_on_extra_warnings:
+            else:
+                expected_warning = cast(
+                    "Union[type[Warning], tuple[type[Warning], ...]]",
+                    expected_warning,
+                )
+                match = (
+                    "|".join(m for m in match if m)
+                    if isinstance(match, tuple)
+                    else match
+                )
+                _assert_caught_expected_warnings(
+                    caught_warnings=w,
+                    expected_warning=expected_warning,
+                    match=match,
+                    check_stacklevel=check_stacklevel,
+                )
+            if expected_warning and raise_on_extra_warnings:
                 _assert_caught_no_extra_warnings(
                     caught_warnings=w,
                     expected_warning=expected_warning,
@@ -241,7 +246,7 @@ def _is_unexpected_warning(
     """Check if the actual warning issued is unexpected."""
     if actual_warning and not expected_warning:
         return True
-    expected_warning = cast(type[Warning], expected_warning)
+    expected_warning = cast("type[Warning]", expected_warning)
     return bool(not issubclass(actual_warning.category, expected_warning))
 
 
