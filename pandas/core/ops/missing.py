@@ -56,7 +56,7 @@ def _fill_zeros(result: np.ndarray, x, y) -> np.ndarray:
 
     if y.dtype.kind in "iu":
         ymask = y == 0
-        if ymask.any():
+        if np.count_nonzero(ymask):
             # GH#7325, mask and nans must be broadcastable
             mask = ymask & ~np.isnan(result)
 
