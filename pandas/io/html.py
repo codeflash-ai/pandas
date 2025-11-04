@@ -220,7 +220,7 @@ class _HtmlFrameParser:
         attrs: dict[str, str] | None,
         encoding: str,
         displayed_only: bool,
-        extract_links: Literal[None, "header", "footer", "body", "all"],
+        extract_links: Literal["header", "footer", "body", "all"] | None,
         storage_options: StorageOptions = None,
     ) -> None:
         self.io = io
@@ -444,19 +444,33 @@ class _HtmlFrameParser:
         body_rows = self._parse_tbody_tr(table_html)
         footer_rows = self._parse_tfoot_tr(table_html)
 
+        # Optimize repeated attribute/hook lookups up front
+        _parse_td = self._parse_td
+        _equals_tag = self._equals_tag
+
         def row_is_all_th(row):
-            return all(self._equals_tag(t, "th") for t in self._parse_td(row))
+            # Reuse parse_td and equals_tag from above
+            return all(_equals_tag(t, "th") for t in _parse_td(row))
 
         if not header_rows:
             # The table has no <thead>. Move the top all-<th> rows from
             # body_rows to header_rows. (This is a common case because many
             # tables in the wild have no <thead> or <tfoot>
+            # The table has no <thead>. Move the top all-<th> rows from
+            # body_rows to header_rows. (This is a common case because many
+            # tables in the wild have no <thead> or <tfoot>
+            # Use local pop/append to improve local lookup speed
+            body_rows_pop = body_rows.pop
+            header_rows_append = header_rows.append
             while body_rows and row_is_all_th(body_rows[0]):
-                header_rows.append(body_rows.pop(0))
+                header_rows_append(body_rows_pop(0))
 
-        header = self._expand_colspan_rowspan(header_rows, section="header")
-        body = self._expand_colspan_rowspan(body_rows, section="body")
-        footer = self._expand_colspan_rowspan(footer_rows, section="footer")
+        # These are the main contributors to runtime: Try to locally bind big methods
+        _expand_colspan_rowspan = self._expand_colspan_rowspan
+
+        header = _expand_colspan_rowspan(header_rows, section="header")
+        body = _expand_colspan_rowspan(body_rows, section="body")
+        footer = _expand_colspan_rowspan(footer_rows, section="footer")
 
         return header, body, footer
 
@@ -484,7 +498,15 @@ class _HtmlFrameParser:
         to subsequent cells.
         """
         all_texts = []  # list of rows, each a list of str
-        text: str | tuple
+        # Pre-bind frequently used methods for performance
+        _attr_getter = self._attr_getter
+        _text_getter = self._text_getter
+        _remove_whitespace = globals()["_remove_whitespace"]
+        _parse_td = self._parse_td
+        extract_links = self.extract_links
+        section_in_extract_links = extract_links == "all" or extract_links == section
+        # Avoid repeated string comparisons in hot-path
+
         remainder: list[
             tuple[int, str | tuple, int]
         ] = []  # list of (index, text, nrows)
@@ -494,7 +516,24 @@ class _HtmlFrameParser:
             next_remainder = []
 
             index = 0
-            tds = self._parse_td(tr)
+            tds = _parse_td(tr)
+            tds_len = len(tds)
+            rem = remainder
+            rem_len = len(rem)
+            rem_idx = 0
+
+            # Fast-path: Merge remainder and tds at this row
+            while rem_idx < rem_len and rem[rem_idx][0] <= index:
+                prev_i, prev_text, prev_rowspan = rem[rem_idx]
+                texts.append(prev_text)
+                if prev_rowspan > 1:
+                    next_remainder.append((prev_i, prev_text, prev_rowspan - 1))
+                index += 1
+                rem_idx += 1
+
+            # Only advance the remainder "cursor" for items not processed
+            remainder = rem[rem_idx:]
+
             for td in tds:
                 # Append texts from previous rows with rowspan>1 that come
                 # before this <td>
@@ -506,17 +545,26 @@ class _HtmlFrameParser:
                     index += 1
 
                 # Append the text from this <td>, colspan times
-                text = _remove_whitespace(self._text_getter(td))
-                if self.extract_links in ("all", section):
+                # Pre-bind call targets to avoid attr lookup inside loop
+                text_val = _remove_whitespace(_text_getter(td))
+                if section_in_extract_links:
                     href = self._href_getter(td)
-                    text = (text, href)
-                rowspan = int(self._attr_getter(td, "rowspan") or 1)
-                colspan = int(self._attr_getter(td, "colspan") or 1)
+                    text_val = (text_val, href)
+                rowspan_str = _attr_getter(td, "rowspan")
+                colspan_str = _attr_getter(td, "colspan")
+                if rowspan_str is None or rowspan_str == "":
+                    rowspan = 1
+                else:
+                    rowspan = int(rowspan_str)
+                if colspan_str is None or colspan_str == "":
+                    colspan = 1
+                else:
+                    colspan = int(colspan_str)
 
                 for _ in range(colspan):
-                    texts.append(text)
+                    texts.append(text_val)
                     if rowspan > 1:
-                        next_remainder.append((index, text, rowspan - 1))
+                        next_remainder.append((index, text_val, rowspan - 1))
                     index += 1
 
             # Append texts from previous rows at the final position
@@ -1024,7 +1072,7 @@ def read_html(
     na_values: Iterable[object] | None = None,
     keep_default_na: bool = True,
     displayed_only: bool = True,
-    extract_links: Literal[None, "header", "footer", "body", "all"] = None,
+    extract_links: Literal["header", "footer", "body", "all"] | None = None,
     dtype_backend: DtypeBackend | lib.NoDefault = lib.no_default,
     storage_options: StorageOptions = None,
 ) -> list[DataFrame]:
