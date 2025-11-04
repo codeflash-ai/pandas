@@ -205,61 +205,64 @@ def _split_by_backtick(s: str) -> list[tuple[bool, str]]:
         The second is the actual substring.
     """
     substrings = []
+    # Use local variables for ParseState values to avoid repeated attribute lookups
+    DEFAULT = ParseState.DEFAULT
+    IN_BACKTICK = ParseState.IN_BACKTICK
+    IN_SINGLE_QUOTE = ParseState.IN_SINGLE_QUOTE
+    IN_DOUBLE_QUOTE = ParseState.IN_DOUBLE_QUOTE
+
+    s_len = len(s)
     substr: list[str] = []  # Will join into a string before adding to `substrings`
     i = 0
-    parse_state = ParseState.DEFAULT
-    while i < len(s):
+    parse_state = DEFAULT
+
+    s_append = substr.append  # local variable for speed
+    substr_join = "".join
+    substrings_append = substrings.append
+
+    while i < s_len:
         char = s[i]
 
-        match char:
-            case "`":
-                # start of a backtick-quoted string
-                if parse_state == ParseState.DEFAULT:
-                    if substr:
-                        substrings.append((False, "".join(substr)))
-
-                    substr = [char]
-                    i += 1
-                    parse_state = ParseState.IN_BACKTICK
+        if char == "`":
+            if parse_state == DEFAULT:
+                if substr:
+                    substrings_append((False, substr_join(substr)))
+                substr = [char]
+                i += 1
+                parse_state = IN_BACKTICK
+                # update local references
+                s_append = substr.append
+                continue
+            elif parse_state == IN_BACKTICK:
+                # escaped backtick inside a backtick-quoted string
+                if i != s_len - 1 and s[i + 1] == "`":
+                    s_append(char)
+                    s_append("`")
+                    i += 2
                     continue
-
-                elif parse_state == ParseState.IN_BACKTICK:
-                    # escaped backtick inside a backtick-quoted string
-                    next_char = s[i + 1] if (i != len(s) - 1) else None
-                    if next_char == "`":
-                        substr.append(char)
-                        substr.append(next_char)
-                        i += 2
-                        continue
-
-                    # end of the backtick-quoted string
-                    else:
-                        substr.append(char)
-                        substrings.append((True, "".join(substr)))
-
-                        substr = []
-                        i += 1
-                        parse_state = ParseState.DEFAULT
-                        continue
-            case "'":
-                # start of a single-quoted string
-                if parse_state == ParseState.DEFAULT:
-                    parse_state = ParseState.IN_SINGLE_QUOTE
-                # end of a single-quoted string
-                elif (parse_state == ParseState.IN_SINGLE_QUOTE) and (s[i - 1] != "\\"):
-                    parse_state = ParseState.DEFAULT
-            case '"':
-                # start of a double-quoted string
-                if parse_state == ParseState.DEFAULT:
-                    parse_state = ParseState.IN_DOUBLE_QUOTE
-                # end of a double-quoted string
-                elif (parse_state == ParseState.IN_DOUBLE_QUOTE) and (s[i - 1] != "\\"):
-                    parse_state = ParseState.DEFAULT
-        substr.append(char)
+                else:
+                    s_append(char)
+                    substrings_append((True, substr_join(substr)))
+                    substr = []
+                    i += 1
+                    parse_state = DEFAULT
+                    s_append = substr.append
+                    continue
+        elif char == "'":
+            if parse_state == DEFAULT:
+                parse_state = IN_SINGLE_QUOTE
+            elif (parse_state == IN_SINGLE_QUOTE) and (s[i - 1] != "\\"):
+                parse_state = DEFAULT
+        elif char == '"':
+            if parse_state == DEFAULT:
+                parse_state = IN_DOUBLE_QUOTE
+            elif (parse_state == IN_DOUBLE_QUOTE) and (s[i - 1] != "\\"):
+                parse_state = DEFAULT
+        s_append(char)
         i += 1
 
     if substr:
-        substrings.append((False, "".join(substr)))
+        substrings_append((False, substr_join(substr)))
 
     return substrings
 
