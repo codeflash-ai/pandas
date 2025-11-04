@@ -343,7 +343,11 @@ class CSSToExcelConverter:
             return "none"
 
     def _get_width_name(self, width_input: str | None) -> str | None:
-        width = self._width_to_float(width_input)
+        width = (
+            float(width_input[:-2])
+            if width_input is not None and width_input.endswith("pt")
+            else self._width_to_float(width_input)
+        )
         if width < 1e-5:
             return None
         elif width < 1.3:
@@ -354,7 +358,9 @@ class CSSToExcelConverter:
 
     def _width_to_float(self, width: str | None) -> float:
         if width is None:
-            width = "2pt"
+            return 2.0
+        if isinstance(width, str) and width.endswith("pt"):
+            return float(width[:-2])
         return self._pt_to_float(width)
 
     def _pt_to_float(self, pt_string: str) -> float:
@@ -669,7 +675,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
