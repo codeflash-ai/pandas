@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -298,7 +298,9 @@ def _get_values(
     dtype = values.dtype
 
     datetimelike = False
-    if values.dtype.kind in "mM":
+    if dtype.kind in "mM":
+        # changing timedelta64/datetime64 to int64 needs to happen after
+        #  finding `mask` above
         # changing timedelta64/datetime64 to int64 needs to happen after
         #  finding `mask` above
         values = np.asarray(values.view("i8"))
@@ -311,28 +313,29 @@ def _get_values(
             dtype, fill_value=fill_value, fill_value_typ=fill_value_typ
         )
 
-        if fill_value is not None:
-            if mask.any():
-                if datetimelike or _na_ok_dtype(dtype):
-                    values = values.copy()
-                    np.putmask(values, mask, fill_value)
-                else:
-                    # np.where will promote if needed
-                    values = np.where(~mask, values, fill_value)
+        # Optimize: avoid unnecessary .copy() and mask application if no NaNs
+        if fill_value is not None and mask.any():
+            # If all missing, np.putmask and np.where are efficient, but need to avoid .copy() unless necessary
+            if datetimelike or _na_ok_dtype(dtype):
+                values = values.copy()
+                np.putmask(values, mask, fill_value)
+            else:
+                # np.where will promote if needed
+                values = np.where(~mask, values, fill_value)
 
     return values, mask
 
 
 def _get_dtype_max(dtype: np.dtype) -> np.dtype:
     # return a platform independent precision dtype
-    dtype_max = dtype
-    if dtype.kind in "bi":
-        dtype_max = np.dtype(np.int64)
-    elif dtype.kind == "u":
-        dtype_max = np.dtype(np.uint64)
-    elif dtype.kind == "f":
-        dtype_max = np.dtype(np.float64)
-    return dtype_max
+    kind = dtype.kind
+    if kind in "bi":
+        return np.dtype(np.int64)
+    elif kind == "u":
+        return np.dtype(np.uint64)
+    elif kind == "f":
+        return np.dtype(np.float64)
+    return dtype
 
 
 def _na_ok_dtype(dtype: DtypeObj) -> bool:
@@ -413,7 +416,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +481,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -629,13 +632,21 @@ def nansum(
     """
     dtype = values.dtype
     values, mask = _get_values(values, skipna, fill_value=0, mask=mask)
-    dtype_sum = _get_dtype_max(dtype)
-    if dtype.kind == "f":
-        dtype_sum = dtype
-    elif dtype.kind == "m":
-        dtype_sum = np.dtype(np.float64)
 
-    the_sum = values.sum(axis, dtype=dtype_sum)
+    # Optimize: avoid unnecessary assignments
+    kind = dtype.kind
+    if kind == "f":
+        dtype_sum = dtype
+    elif kind == "m":
+        dtype_sum = np.dtype(np.float64)
+    else:
+        dtype_sum = _get_dtype_max(dtype)
+
+    # Optimize: use np.nansum for float input (avoids internal mask management)
+    if kind == "f" and skipna and mask is None:
+        the_sum = np.nansum(values, axis=axis, dtype=dtype_sum)
+    else:
+        the_sum = values.sum(axis, dtype=dtype_sum)
     the_sum = _maybe_null_out(the_sum, axis, mask, values.shape, min_count=min_count)
 
     return the_sum
@@ -712,7 +723,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +909,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
