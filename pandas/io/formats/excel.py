@@ -189,8 +189,10 @@ class CSSToExcelConverter:
     inherited: dict[str, str] | None
 
     def __init__(self, inherited: str | None = None) -> None:
+        compute_css = self.compute_css
         if inherited is not None:
-            self.inherited = self.compute_css(inherited)
+            # Avoid attribute access in loop: local variable is faster
+            self.inherited = compute_css(inherited)
         else:
             self.inherited = None
         # We should avoid cache on the __call__ method.
@@ -479,7 +481,9 @@ class CSSToExcelConverter:
         return None
 
     def _is_hex_color(self, color_string: str) -> bool:
-        return bool(color_string.startswith("#"))
+        # Avoid unnecessary bool() conversion. startswith returns bool already.
+        # (If the color_string is often invalid type, this should not be changed.)
+        return color_string.startswith("#")
 
     def _convert_hex_to_excel(self, color_string: str) -> str:
         code = color_string.lstrip("#")
@@ -669,7 +673,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
