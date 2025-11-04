@@ -127,9 +127,12 @@ def previous_workday(dt: datetime) -> datetime:
     returns previous workday used for observances
     """
     dt -= timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
-        dt -= timedelta(days=1)
+    wd = dt.weekday()
+    # Mon-Fri are 0-4
+    if wd > 4:
+        # If Saturday (5), skip to Friday (subtract one more day)
+        # If Sunday (6), skip to Friday (subtract two more days)
+        dt -= timedelta(days=wd - 4)
     return dt
 
 
@@ -537,25 +540,31 @@ class AbstractHolidayCalendar(metaclass=HolidayCalendarMetaClass):
         other : AbstractHolidayCalendar
           instance/subclass or array of Holiday objects
         """
-        try:
+        # Unwrap .rules attribute if present, else use as is
+        if hasattr(other, "rules"):
             other = other.rules
-        except AttributeError:
-            pass
 
         if not isinstance(other, list):
             other = [other]
-        other_holidays = {holiday.name: holiday for holiday in other}
 
-        try:
+        # If lists are long, using a generator avoids one intermediate list in dictcomps
+        # but if not, dictcomp over list is fastest
+        # Use dict.update directly, no change
+
+        # Create dict[holiday.name] -> holiday, for both base and other (base wins on duplicates)
+        other_holidays = {}
+        for holiday in other:
+            other_holidays[holiday.name] = holiday
+
+        if hasattr(base, "rules"):
             base = base.rules
-        except AttributeError:
-            pass
 
         if not isinstance(base, list):
             base = [base]
-        base_holidays = {holiday.name: holiday for holiday in base}
+        # update in-place to avoid creating extra dicts / objects
+        for holiday in base:
+            other_holidays[holiday.name] = holiday
 
-        other_holidays.update(base_holidays)
         return list(other_holidays.values())
 
     def merge(self, other, inplace: bool = False):
@@ -636,12 +645,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +663,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
