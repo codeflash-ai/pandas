@@ -189,6 +189,7 @@ class CSSToExcelConverter:
     inherited: dict[str, str] | None
 
     def __init__(self, inherited: str | None = None) -> None:
+        self._ITALIC_MAP = self.__class__.ITALIC_MAP
         if inherited is not None:
             self.inherited = self.compute_css(inherited)
         else:
@@ -399,8 +400,8 @@ class CSSToExcelConverter:
 
     def _get_is_italic(self, props: Mapping[str, str]) -> bool | None:
         font_style = props.get("font-style")
-        if font_style:
-            return self.ITALIC_MAP.get(font_style)
+        if font_style is not None:
+            return self._ITALIC_MAP.get(font_style)
         return None
 
     def _get_decoration(self, props: Mapping[str, str]) -> Sequence[str]:
@@ -669,7 +670,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
