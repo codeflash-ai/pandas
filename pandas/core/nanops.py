@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -897,12 +897,12 @@ def _get_counts_nanvar(
             count = np.nan  # type: ignore[assignment]
             d = np.nan
     else:
-        # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
-        mask = count <= ddof
-        if mask.any():
-            np.putmask(d, mask, np.nan)
-            np.putmask(count, mask, np.nan)
+        count_arr = cast("np.ndarray", count)
+        mask_over_ddof = count_arr <= ddof
+        if mask_over_ddof.any():
+            np.putmask(d, mask_over_ddof, np.nan)
+            np.putmask(count_arr, mask_over_ddof, np.nan)
+        count = count_arr
     return count, d
 
 
@@ -992,16 +992,23 @@ def nanvar(
     dtype = values.dtype
     mask = _maybe_get_mask(values, skipna, mask)
     if dtype.kind in "iu":
-        values = values.astype("f8")
+        values = values.astype("f8", copy=False)
         if mask is not None:
-            values[mask] = np.nan
+            # Only mask if mask contains at least one True
+            if mask.any():
+                values = values.copy()
+                np.putmask(values, mask, np.nan)
+
+    # Fast branch for float dtype
 
     if values.dtype.kind == "f":
         count, d = _get_counts_nanvar(values.shape, mask, axis, ddof, values.dtype)
     else:
         count, d = _get_counts_nanvar(values.shape, mask, axis, ddof)
 
-    if skipna and mask is not None:
+    # Use np.putmask only if mask contains at least one True
+    if skipna and mask is not None and mask.any():
+        # Only copy if mask has True
         values = values.copy()
         np.putmask(values, mask, 0)
 
@@ -1011,11 +1018,15 @@ def nanvar(
     # observations.
     #
     # See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-    avg = _ensure_numeric(values.sum(axis=axis, dtype=np.float64)) / count
+    sums = values.sum(axis=axis, dtype=np.float64)
+    avg = _ensure_numeric(sums) / count
     if axis is not None:
         avg = np.expand_dims(avg, axis)
-    sqr = _ensure_numeric((avg - values) ** 2)
-    if mask is not None:
+    # Avoid extra conversion for avg - values
+    sqr = avg - values
+    np.square(sqr, out=sqr)
+    # Only mask if mask has True
+    if mask is not None and mask.any():
         np.putmask(sqr, mask, 0)
     result = sqr.sum(axis=axis, dtype=np.float64) / d
 
@@ -1069,7 +1080,7 @@ def nansem(
 
     mask = _maybe_get_mask(values, skipna, mask)
     if values.dtype.kind != "f":
-        values = values.astype("f8")
+        values = values.astype("f8", copy=False)
 
     if not skipna and mask is not None and mask.any():
         return np.nan
@@ -1077,6 +1088,7 @@ def nansem(
     count, _ = _get_counts_nanvar(values.shape, mask, axis, ddof, values.dtype)
     var = nanvar(values, axis=axis, skipna=skipna, ddof=ddof, mask=mask)
 
+    # Use sqrt for count and var using dtype of result
     return np.sqrt(var) / np.sqrt(count)
 
 
