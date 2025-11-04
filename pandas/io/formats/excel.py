@@ -48,6 +48,7 @@ from pandas.io.formats.css import (
     CSSWarning,
 )
 from pandas.io.formats.format import get_level_lengths
+from pandas.io.excel import ExcelWriter
 
 if TYPE_CHECKING:
     from pandas._typing import (
@@ -253,10 +254,24 @@ class CSSToExcelConverter:
 
     def build_alignment(self, props: Mapping[str, str]) -> dict[str, bool | str | None]:
         # TODO: text-indent, padding-left -> alignment.indent
+        # TODO: text-indent, padding-left -> alignment.indent
+        # Optimize by locally storing the frequently accessed props and maps
+        vertical_align = props.get("vertical-align")
+        wrap_text_key = props.get("white-space")
+        horizontal = props.get("text-align")
+        vertical = None
+        if vertical_align:
+            # Avoid method call and an extra attribute lookup
+            vertical_map = self.VERTICAL_MAP
+            vertical = vertical_map.get(vertical_align)
+        wrap_text = None
+        if wrap_text_key is not None:
+            # Optimize tuple creation for membership test
+            wrap_text = wrap_text_key not in {"nowrap", "pre", "pre-line"}
         return {
-            "horizontal": props.get("text-align"),
-            "vertical": self._get_vertical_alignment(props),
-            "wrap_text": self._get_is_wrap_text(props),
+            "horizontal": horizontal,
+            "vertical": vertical,
+            "wrap_text": wrap_text,
         }
 
     def _get_vertical_alignment(self, props: Mapping[str, str]) -> str | None:
@@ -669,7 +684,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
