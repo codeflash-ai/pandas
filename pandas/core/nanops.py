@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +898,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1384,8 +1384,6 @@ def nankurt(
     return result
 
 
-@disallow("M8", "m8")
-@maybe_operate_rowwise
 def nanprod(
     values: np.ndarray,
     *,
@@ -1419,8 +1417,8 @@ def nanprod(
     mask = _maybe_get_mask(values, skipna, mask)
 
     if skipna and mask is not None:
-        values = values.copy()
-        values[mask] = 1
+        # Use np.where to avoid a copy unless necessary, improves performance:
+        values = np.where(mask, 1, values)
     result = values.prod(axis)
     # error: Incompatible return value type (got "Union[ndarray, float]", expected
     # "float")
@@ -1512,7 +1510,9 @@ def _maybe_null_out(
 
     if axis is not None and isinstance(result, np.ndarray):
         if mask is not None:
-            null_mask = (mask.shape[axis] - mask.sum(axis) - min_count) < 0
+            # Use fast mask counting instead of mask.shape[axis]-mask.sum(axis)
+            valid_counts = mask.shape[axis] - mask.sum(axis)
+            null_mask = (valid_counts - min_count) < 0
         else:
             # we have no nulls, kept mask=None in _maybe_get_mask
             below_count = shape[axis] - min_count < 0
