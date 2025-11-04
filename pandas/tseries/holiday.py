@@ -126,9 +126,15 @@ def previous_workday(dt: datetime) -> datetime:
     """
     returns previous workday used for observances
     """
-    dt -= timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
+    wd = dt.weekday()
+    # Subtract 1 day for every call, plus further adjustment for weekends
+    if wd == 0:  # Monday -> previous Friday
+        dt -= timedelta(days=3)
+    elif wd == 6:  # Sunday -> previous Friday
+        dt -= timedelta(days=2)
+    elif wd == 5:  # Saturday -> previous Friday
+        dt -= timedelta(days=1)
+    else:  # Tuesday-Friday
         dt -= timedelta(days=1)
     return dt
 
@@ -636,12 +642,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +660,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
