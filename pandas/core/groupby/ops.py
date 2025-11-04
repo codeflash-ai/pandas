@@ -248,23 +248,21 @@ class WrappedCythonOp:
         return values
 
     def _get_output_shape(self, ngroups: int, values: np.ndarray) -> Shape:
-        how = self.how
+        # Fast path: if how == "ohlc" (arity known, only valid "how" with arity > 1)
+        if self.how == "ohlc":
+            return (ngroups, 4)
+        # Avoid attribute reads in inner logic: localize 'self.kind' and 'self.how'
         kind = self.kind
+        how = self.how
 
         arity = self._cython_arity.get(how, 1)
-
-        out_shape: Shape
-        if how == "ohlc":
-            out_shape = (ngroups, arity)
-        elif arity > 1:
+        if arity > 1:
             raise NotImplementedError(
                 "arity of more than 1 is not supported for the 'how' argument"
             )
-        elif kind == "transform":
-            out_shape = values.shape
-        else:
-            out_shape = (ngroups,) + values.shape[1:]
-        return out_shape
+        if kind == "transform":
+            return values.shape
+        return (ngroups,) + values.shape[1:]
 
     def _get_out_dtype(self, dtype: np.dtype) -> np.dtype:
         how = self.how
