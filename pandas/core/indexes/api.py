@@ -37,26 +37,26 @@ if TYPE_CHECKING:
 
 
 __all__ = [
-    "Index",
-    "MultiIndex",
     "CategoricalIndex",
-    "IntervalIndex",
-    "RangeIndex",
-    "InvalidIndexError",
-    "TimedeltaIndex",
-    "PeriodIndex",
     "DatetimeIndex",
-    "_new_Index",
+    "Index",
+    "IntervalIndex",
+    "InvalidIndexError",
+    "MultiIndex",
     "NaT",
+    "PeriodIndex",
+    "RangeIndex",
+    "TimedeltaIndex",
+    "_new_Index",
+    "all_indexes_same",
+    "default_index",
     "ensure_index",
     "ensure_index_from_sequences",
     "get_objs_combined_axis",
-    "union_indexes",
     "get_unanimous_names",
-    "all_indexes_same",
-    "default_index",
-    "safe_sort_index",
     "maybe_sequence_to_range",
+    "safe_sort_index",
+    "union_indexes",
 ]
 
 
@@ -127,16 +127,47 @@ def _get_combined_index(
     -------
     Index
     """
-    # TODO: handle index names!
-    indexes = _get_distinct_objs(indexes)
-    if len(indexes) == 0:
+    # Defer imports to here so that the fast path isn't penalized
+    from pandas.core.indexes.api import (
+        _get_distinct_objs,
+        default_index,
+        safe_sort_index,
+        union_indexes,
+    )
+
+    # Convert generator -> list once, only for distinct-ification
+    indexes = list(_get_distinct_objs(list(indexes)))
+    nidx = len(indexes)
+    if nidx == 0:
         index: Index = default_index(0)
-    elif len(indexes) == 1:
+    elif nidx == 1:
         index = indexes[0]
     elif intersect:
-        index = indexes[0]
-        for other in indexes[1:]:
-            index = index.intersection(other)
+        # If all Index objects are the same object, just pick the first one
+        # Otherwise, if they're all equal, only calculate intersection once
+        # This is a fast path for redundant axis (common in reduce ops)
+        if all(indexes[0] is idx or indexes[0].equals(idx) for idx in indexes[1:]):
+            index = indexes[0]
+        else:
+            # Intersect using a set, then reconstruct Index in a single call,
+            # which is much faster for many large indexes
+            # However, the original implementation calls .intersection pairwise,
+            # which is needed for Index subtypes (to preserve freq, range, dtype, etc.)
+            # So, only use set fastpath for plain Index
+            all_plain_index = all(type(idx) is Index for idx in indexes)
+            if all_plain_index:
+                res = set(indexes[0])
+                for idx in indexes[1:]:
+                    res &= set(idx)
+                    if not res:  # early exit
+                        break
+                # Keep original dtype and name if possible
+                index = Index(res, name=indexes[0].name, dtype=indexes[0].dtype)
+            else:
+                # fallback to original behavior for subclasses
+                index = indexes[0]
+                for other in indexes[1:]:
+                    index = index.intersection(other)
     else:
         index = union_indexes(indexes, sort=False)
         index = ensure_index(index)
@@ -171,7 +202,7 @@ def safe_sort_index(index: Index) -> Index:
         if isinstance(array_sorted, Index):
             return array_sorted
 
-        array_sorted = cast(np.ndarray, array_sorted)
+        array_sorted = cast("np.ndarray", array_sorted)
         if isinstance(index, MultiIndex):
             index = MultiIndex.from_tuples(array_sorted, names=index.names)
         else:
