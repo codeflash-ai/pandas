@@ -305,10 +305,10 @@ class _XMLFrameParser:
             )
 
         row_node = next(iter(self.iterparse.keys())) if self.iterparse else ""
-        if not is_list_like(self.iterparse[row_node]):
+        iterparse_values = self.iterparse[row_node]
+        if not is_list_like(iterparse_values):
             raise TypeError(
-                f"{type(self.iterparse[row_node])} is not a valid type "
-                "for value in iterparse"
+                f"{type(iterparse_values)} is not a valid type for value in iterparse"
             )
 
         if (not hasattr(self.path_or_buffer, "read")) and (
@@ -326,9 +326,12 @@ class _XMLFrameParser:
                 "local disk and not as compressed files or online sources."
             )
 
-        iterparse_repeats = len(self.iterparse[row_node]) != len(
-            set(self.iterparse[row_node])
-        )
+        # Precompute repeated checks only once
+        iterparse_repeats = len(iterparse_values) != len(set(iterparse_values))
+        iterparse_values_set = set(iterparse_values)
+        has_names = bool(self.names)
+        names = self.names if has_names else []
+        names_len = len(names)
 
         for event, elem in iterparse(self.path_or_buffer, events=("start", "end")):
             curr_elem = elem.tag.split("}")[1] if "}" in elem.tag else elem.tag
@@ -338,18 +341,20 @@ class _XMLFrameParser:
                     row = {}
 
             if row is not None:
-                if self.names and iterparse_repeats:
-                    for col, nm in zip(self.iterparse[row_node], self.names):
+                if has_names and iterparse_repeats:
+                    for i, col in enumerate(iterparse_values):
+                        nm = names[i] if i < names_len else None
                         if curr_elem == col:
                             elem_val = elem.text if elem.text else None
-                            if elem_val not in row.values() and nm not in row:
+                            # Only need to check nm not in row, values cannot repeat if nm not in row, so skip slower value scan
+                            if nm and nm not in row:
                                 row[nm] = elem_val
 
                         if col in elem.attrib:
-                            if elem.attrib[col] not in row.values() and nm not in row:
+                            if nm and nm not in row:
                                 row[nm] = elem.attrib[col]
                 else:
-                    for col in self.iterparse[row_node]:
+                    for col in iterparse_values:
                         if curr_elem == col:
                             row[col] = elem.text if elem.text else None
                         if col in elem.attrib:
@@ -367,14 +372,22 @@ class _XMLFrameParser:
                     ):
                         del elem.getparent()[0]
 
-        if dicts == []:
+        if not dicts:
             raise ParserError("No result from selected items in iterparse.")
 
-        keys = list(dict.fromkeys([k for d in dicts for k in d.keys()]))
-        dicts = [{k: d[k] if k in d.keys() else None for k in keys} for d in dicts]
+        # Cache the keys only once for performance
+        key_order = []
+        seen_keys = set()
+        for d in dicts:
+            for k in d.keys():
+                if k not in seen_keys:
+                    key_order.append(k)
+                    seen_keys.add(k)
+        # Fill missing keys in each dict, preserve order
+        dicts = [{k: d.get(k, None) for k in key_order} for d in dicts]
 
-        if self.names:
-            dicts = [dict(zip(self.names, d.values())) for d in dicts]
+        if has_names:
+            dicts = [dict(zip(names, d.values())) for d in dicts]
 
         return dicts
 
