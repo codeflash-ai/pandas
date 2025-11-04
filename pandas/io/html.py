@@ -220,7 +220,7 @@ class _HtmlFrameParser:
         attrs: dict[str, str] | None,
         encoding: str,
         displayed_only: bool,
-        extract_links: Literal[None, "header", "footer", "body", "all"],
+        extract_links: Literal["header", "footer", "body", "all"] | None,
         storage_options: StorageOptions = None,
     ) -> None:
         self.io = io
@@ -451,8 +451,14 @@ class _HtmlFrameParser:
             # The table has no <thead>. Move the top all-<th> rows from
             # body_rows to header_rows. (This is a common case because many
             # tables in the wild have no <thead> or <tfoot>
-            while body_rows and row_is_all_th(body_rows[0]):
-                header_rows.append(body_rows.pop(0))
+            start_index = 0
+            while start_index < len(body_rows) and row_is_all_th(
+                body_rows[start_index]
+            ):
+                start_index += 1
+            if start_index > 0:
+                header_rows.extend(body_rows[:start_index])
+                del body_rows[:start_index]
 
         header = self._expand_colspan_rowspan(header_rows, section="header")
         body = self._expand_colspan_rowspan(body_rows, section="body")
@@ -1024,7 +1030,7 @@ def read_html(
     na_values: Iterable[object] | None = None,
     keep_default_na: bool = True,
     displayed_only: bool = True,
-    extract_links: Literal[None, "header", "footer", "body", "all"] = None,
+    extract_links: Literal["header", "footer", "body", "all"] | None = None,
     dtype_backend: DtypeBackend | lib.NoDefault = lib.no_default,
     storage_options: StorageOptions = None,
 ) -> list[DataFrame]:
