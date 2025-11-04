@@ -38,6 +38,10 @@ from pandas.tseries.offsets import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_ONE_DAY = timedelta(1)
+
+_TWO_DAYS = timedelta(2)
+
 
 def next_monday(dt: datetime) -> datetime:
     """
@@ -59,10 +63,14 @@ def next_monday_or_tuesday(dt: datetime) -> datetime:
     (because Monday is already taken by adjacent holiday on the day before)
     """
     dow = dt.weekday()
-    if dow in (5, 6):
-        return dt + timedelta(2)
+    # Use integer comparisons for fastest evaluation,
+    # and pre-create timedelta instances to avoid construction overhead
+    if dow == 5 or dow == 6:
+        # dt falls on Saturday (5) or Sunday (6), use next Monday (add 2 days)
+        return dt + _TWO_DAYS
     if dow == 0:
-        return dt + timedelta(1)
+        # dt falls on Monday (0), use following Tuesday (add 1 day)
+        return dt + _ONE_DAY
     return dt
 
 
@@ -127,9 +135,12 @@ def previous_workday(dt: datetime) -> datetime:
     returns previous workday used for observances
     """
     dt -= timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
-        dt -= timedelta(days=1)
+    wd = dt.weekday()
+    # Mon-Fri are 0-4
+    if wd > 4:
+        # If Saturday (5), skip to Friday (subtract one more day)
+        # If Sunday (6), skip to Friday (subtract two more days)
+        dt -= timedelta(days=wd - 4)
     return dt
 
 
@@ -636,12 +647,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +665,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
