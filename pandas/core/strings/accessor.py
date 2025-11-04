@@ -63,6 +63,8 @@ if TYPE_CHECKING:
         Series,
     )
 
+_ALLOWED_TYPES = frozenset({"string", "empty", "bytes", "mixed", "mixed-integer"})
+
 _shared_docs: dict[str, str] = {}
 _cpython_optimized_encoders = (
     "utf-8",
@@ -119,28 +121,29 @@ def forbid_nonstring_types(
     TypeError
         If the inferred type of the underlying data is in `forbidden`.
     """
-    # deal with None
-    forbidden = [] if forbidden is None else forbidden
+    # Use an empty tuple (immutability) if forbidden is None, slightly faster than list
+    forbidden_set = frozenset(forbidden or ())
 
-    allowed_types = {"string", "empty", "bytes", "mixed", "mixed-integer"} - set(
-        forbidden
-    )
+    # Compute allowed_types once and reuse the shared frozenset
+    allowed_types = _ALLOWED_TYPES - forbidden_set
 
     def _forbid_nonstring_types(func: F) -> F:
         func_name = func.__name__ if name is None else name
 
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            if self._inferred_dtype not in allowed_types:
+            # Optimize membership test by using set directly, no attribute access in a chain
+            inferred_dtype = self._inferred_dtype
+            if inferred_dtype not in allowed_types:
                 msg = (
                     f"Cannot use .str.{func_name} with values of "
-                    f"inferred dtype '{self._inferred_dtype}'."
+                    f"inferred dtype '{inferred_dtype}'."
                 )
                 raise TypeError(msg)
             return func(self, *args, **kwargs)
 
         wrapper.__name__ = func_name
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _forbid_nonstring_types
 
@@ -149,9 +152,9 @@ def _map_and_wrap(name: str | None, docstring: str | None):
     @forbid_nonstring_types(["bytes"], name=name)
     def wrapper(self):
         result = getattr(self._data.array, f"_str_{name}")()
-        return self._wrap_result(
-            result, returns_string=name not in ("isnumeric", "isdecimal")
-        )
+        # Avoid tuple creation in 'in' check by comparing to both values directly (for 2 values)
+        returns_string = name != "isnumeric" and name != "isdecimal"
+        return self._wrap_result(result, returns_string=returns_string)
 
     wrapper.__doc__ = docstring
     return wrapper
