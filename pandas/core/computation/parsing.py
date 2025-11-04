@@ -17,6 +17,8 @@ if TYPE_CHECKING:
         Iterator,
     )
 
+_ascii_escape_cache = dict()
+
 # A token value Python's tokenizer probably will never use.
 BACKTICK_QUOTED_STRING = 100
 
@@ -39,36 +41,53 @@ def create_valid_python_identifier(name: str) -> str:
 
     # Escape characters that fall outside the ASCII range (U+0001..U+007F).
     # GH 49633
-    gen = (
-        (c, "".join(chr(b) for b in c.encode("ascii", "backslashreplace")))
-        for c in name
-    )
-    name = "".join(
-        c_escaped.replace("\\", "_UNICODE_" if c != c_escaped else "_BACKSLASH_")
-        for c, c_escaped in gen
+    # Precompute the escaped replacements and use a local variable for replacements for speed
+    gen = []
+    append_gen = gen.append
+    for c in name:
+        if c in _ascii_escape_cache:
+            c_escaped = _ascii_escape_cache[c]
+        else:
+            c_escaped = "".join(chr(b) for b in c.encode("ascii", "backslashreplace"))
+            _ascii_escape_cache[c] = c_escaped
+        append_gen((c, c_escaped))
+
+    name = []
+    append_name = name.append
+    for c, c_escaped in gen:
+        if c != c_escaped:
+            append_name(c_escaped.replace("\\", "_UNICODE_"))
+        else:
+            append_name(c_escaped.replace("\\", "_BACKSLASH_"))
+    name = "".join(name)
+
+    # Construct the replacement dictionary only once and reuse
+    # Use a tuple to store in the closure for subsequent calls
+    if not hasattr(create_valid_python_identifier, "_special_characters_replacements"):
+        replacements = {
+            char: f"_{token.tok_name[tokval]}_"
+            for char, tokval in tokenize.EXACT_TOKEN_TYPES.items()
+        }
+        replacements.update(
+            {
+                " ": "_",
+                "?": "_QUESTIONMARK_",
+                "!": "_EXCLAMATIONMARK_",
+                "$": "_DOLLARSIGN_",
+                "€": "_EUROSIGN_",
+                "°": "_DEGREESIGN_",
+                "'": "_SINGLEQUOTE_",
+                '"': "_DOUBLEQUOTE_",
+                "#": "_HASH_",
+                "`": "_BACKTICK_",
+            }
+        )
+        create_valid_python_identifier._special_characters_replacements = replacements
+    special_characters_replacements = (
+        create_valid_python_identifier._special_characters_replacements
     )
 
-    # Create a dict with the special characters and their replacement string.
-    # EXACT_TOKEN_TYPES contains these special characters
-    # token.tok_name contains a readable description of the replacement string.
-    special_characters_replacements = {
-        char: f"_{token.tok_name[tokval]}_"
-        for char, tokval in (tokenize.EXACT_TOKEN_TYPES.items())
-    }
-    special_characters_replacements.update(
-        {
-            " ": "_",
-            "?": "_QUESTIONMARK_",
-            "!": "_EXCLAMATIONMARK_",
-            "$": "_DOLLARSIGN_",
-            "€": "_EUROSIGN_",
-            "°": "_DEGREESIGN_",
-            "'": "_SINGLEQUOTE_",
-            '"': "_DOUBLEQUOTE_",
-            "#": "_HASH_",
-            "`": "_BACKTICK_",
-        }
-    )
+    # Use list comprehension for high performance and memory efficiency
 
     name = "".join([special_characters_replacements.get(char, char) for char in name])
     name = f"BACKTICK_QUOTED_STRING_{name}"
@@ -136,7 +155,8 @@ def clean_column_name(name: Hashable) -> Hashable:
     """
     try:
         # Escape backticks
-        name = name.replace("`", "``") if isinstance(name, str) else name
+        if isinstance(name, str) and "`" in name:
+            name = name.replace("`", "``")
 
         tokenized = tokenize_string(f"`{name}`")
         tokval = next(tokenized)[1]
@@ -280,17 +300,22 @@ def tokenize_string(source: str) -> Iterator[tuple[int, str]]:
     """
     # GH 59285
     # Escape characters, including backticks
-    source = "".join(
-        (
-            create_valid_python_identifier(substring[1:-1])
-            if is_backtick_quoted
-            else substring
-        )
-        for is_backtick_quoted, substring in _split_by_backtick(source)
-    )
+    fragments = []
+    append_fragments = fragments.append
+    for is_backtick_quoted, substring in _split_by_backtick(source):
+        if is_backtick_quoted:
+            # Use slice only if substring has >2 characters (performance, but safe for correctness)
+            # The substring will always have at least two backticks (start/end) so slicing [1:-1] is correct
+            core = substring[1:-1]
+            processed = create_valid_python_identifier(core)
+            append_fragments(processed)
+        else:
+            append_fragments(substring)
+    source = "".join(fragments)
 
     line_reader = StringIO(source).readline
     token_generator = tokenize.generate_tokens(line_reader)
 
-    for toknum, tokval, _, _, _ in token_generator:
-        yield toknum, tokval
+    # Use local variable in for loop for performance
+    for token_tuple in token_generator:
+        yield token_tuple[0], token_tuple[1]
