@@ -198,6 +198,20 @@ class CSSToExcelConverter:
         # garbage collection no longer deletes the instance.
         self._call_cached = functools.cache(self._call_uncached)
 
+        # Pre-compile regexes for faster repeated use
+        self._text_shadow_regex = re.compile(r"^[^#(]*[1-9]")
+        self._font_family_regex = re.compile(
+            r"""(?x)
+            (
+            "(?:[^"]|\\")+"     # Double-quoted
+            |
+            '(?:[^']|\\')+'     # Single-quoted
+            |
+            [^'",]+             # Unquoted
+            )(?=,|\s*$)
+        """
+        )
+
     compute_css = CSSResolver()
 
     def __call__(
@@ -417,34 +431,33 @@ class CSSToExcelConverter:
 
     def _get_shadow(self, props: Mapping[str, str]) -> bool | None:
         if "text-shadow" in props:
-            return bool(re.search("^[^#(]*[1-9]", props["text-shadow"]))
+            # Use precompiled regex for performance
+            return bool(self._text_shadow_regex.search(props["text-shadow"]))
         return None
 
     def _get_font_names(self, props: Mapping[str, str]) -> Sequence[str]:
-        font_names_tmp = re.findall(
-            r"""(?x)
-            (
-            "(?:[^"]|\\")+"
-            |
-            '(?:[^']|\\')+'
-            |
-            [^'",]+
-            )(?=,|\s*$)
-        """,
-            props.get("font-family", ""),
-        )
+        font_family_val = props.get("font-family", "")
+        if not font_family_val:
+            return []
+        font_names_tmp = self._font_family_regex.findall(font_family_val)
 
-        font_names = []
+        if not font_names_tmp:
+            return []
+
+        # Eliminate inner ifs from the loop for efficiency
+        result = []
+        append = result.append
         for name in font_names_tmp:
-            if name[:1] == '"':
+            first = name[:1]
+            if first == '"':
                 name = name[1:-1].replace('\\"', '"')
-            elif name[:1] == "'":
+            elif first == "'":
                 name = name[1:-1].replace("\\'", "'")
             else:
                 name = name.strip()
             if name:
-                font_names.append(name)
-        return font_names
+                append(name)
+        return result
 
     def _get_font_size(self, props: Mapping[str, str]) -> float | None:
         size = props.get("font-size")
@@ -453,13 +466,11 @@ class CSSToExcelConverter:
         return self._pt_to_float(size)
 
     def _select_font_family(self, font_names: Sequence[str]) -> int | None:
-        family = None
         for name in font_names:
             family = self.FAMILY_MAP.get(name)
-            if family:
-                break
-
-        return family
+            if family is not None:
+                return family
+        return None
 
     def color_to_excel(self, val: str | None) -> str | None:
         if val is None:
@@ -468,14 +479,16 @@ class CSSToExcelConverter:
         if self._is_hex_color(val):
             return self._convert_hex_to_excel(val)
 
-        try:
-            return self.NAMED_COLORS[val]
-        except KeyError:
-            warnings.warn(
-                f"Unhandled color format: {val!r}",
-                CSSWarning,
-                stacklevel=find_stack_level(),
-            )
+        # Avoid try/except if majority are expected to hit in dict
+        colors = self.NAMED_COLORS
+        if val in colors:
+            return colors[val]
+
+        warnings.warn(
+            f"Unhandled color format: {val!r}",
+            CSSWarning,
+            stacklevel=find_stack_level(),
+        )
         return None
 
     def _is_hex_color(self, color_string: str) -> bool:
@@ -669,7 +682,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
