@@ -120,27 +120,24 @@ def forbid_nonstring_types(
         If the inferred type of the underlying data is in `forbidden`.
     """
     # deal with None
-    forbidden = [] if forbidden is None else forbidden
-
-    allowed_types = {"string", "empty", "bytes", "mixed", "mixed-integer"} - set(
-        forbidden
-    )
+    forbidden_types_set = frozenset(forbidden if forbidden is not None else ())
 
     def _forbid_nonstring_types(func: F) -> F:
         func_name = func.__name__ if name is None else name
 
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            if self._inferred_dtype not in allowed_types:
+            dtype = self._inferred_dtype
+            if dtype in forbidden_types_set:
                 msg = (
                     f"Cannot use .str.{func_name} with values of "
-                    f"inferred dtype '{self._inferred_dtype}'."
+                    f"inferred dtype '{dtype}'."
                 )
                 raise TypeError(msg)
             return func(self, *args, **kwargs)
 
         wrapper.__name__ = func_name
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _forbid_nonstring_types
 
