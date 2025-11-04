@@ -132,6 +132,49 @@ def _ensure_data(values: ArrayLike) -> np.ndarray:
         # extract_array would raise
         values = extract_array(values, extract_numpy=True)
 
+
+    dtype = getattr(values, "dtype", None)
+
+    # Use dtype.kind for early direct type checks
+    if dtype is not None:
+        kind = getattr(dtype, "kind", None)
+        if kind == "O":
+            # object dtype
+            return ensure_object(np.asarray(values))
+        if isinstance(dtype, BaseMaskedDtype):
+            # i.e. BooleanArray, FloatingArray, IntegerArray
+            values = cast("BaseMaskedArray", values)
+            if not values._hasna:
+                return _ensure_data(values._data)
+            return np.asarray(values)
+        if isinstance(dtype, CategoricalDtype):
+            values = cast("Categorical", values)
+            return values.codes
+        if kind == "b":
+            # bool dtype, including numpy native bool
+            if isinstance(values, np.ndarray):
+                return values.view("uint8")
+            return np.asarray(values).astype("uint8", copy=False)
+        if kind in {"i", "u"}:
+            # integer or unsigned integer
+            return np.asarray(values)
+        if kind == "f":
+            # floating
+            # Use tuple for faster membership check
+            if dtype.itemsize in (2, 12, 16):  # type: ignore[union-attr]
+                return ensure_float64(values)
+            return np.asarray(values)
+        if kind == "c":
+            # complex dtype
+            return cast(np.ndarray, values)
+        if needs_i8_conversion(dtype):
+            npvalues = values.view("i8")
+            npvalues = cast(np.ndarray, npvalues)
+            return npvalues
+
+    # If dtype is not set, fallback to legacy checks
+    # These should rarely be hit, but are retained for correctness
+
     if is_object_dtype(values.dtype):
         return ensure_object(np.asarray(values))
 
@@ -975,8 +1018,9 @@ def duplicated(
     -------
     duplicated : ndarray[bool]
     """
-    values = _ensure_data(values)
-    return htable.duplicated(values, keep=keep, mask=mask)
+    # Avoid intermediate copies if values is already correct dtype
+    arr = _ensure_data(values)
+    return htable.duplicated(arr, keep=keep, mask=mask)
 
 
 def mode(
