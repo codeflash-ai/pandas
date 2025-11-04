@@ -83,7 +83,14 @@ def _remove_whitespace(s: str, regex: Pattern = _RE_WHITESPACE) -> str:
     subd : str or unicode
         `s` with all extra whitespace replaced with a single space.
     """
-    return regex.sub(" ", s.strip())
+    if not s:
+        return ""
+    s_stripped = s.strip()
+    if not s_stripped:
+        return ""
+    if "  " not in s_stripped and "\n" not in s_stripped and "\r" not in s_stripped:
+        return s_stripped
+    return regex.sub(" ", s_stripped)
 
 
 def _get_skiprows(skiprows: int | Sequence[int] | slice | None) -> int | Sequence[int]:
@@ -220,7 +227,7 @@ class _HtmlFrameParser:
         attrs: dict[str, str] | None,
         encoding: str,
         displayed_only: bool,
-        extract_links: Literal[None, "header", "footer", "body", "all"],
+        extract_links: Literal["header", "footer", "body", "all"] | None,
         storage_options: StorageOptions = None,
     ) -> None:
         self.io = io
@@ -484,40 +491,65 @@ class _HtmlFrameParser:
         to subsequent cells.
         """
         all_texts = []  # list of rows, each a list of str
-        text: str | tuple
         remainder: list[
             tuple[int, str | tuple, int]
         ] = []  # list of (index, text, nrows)
+        append_all_texts = all_texts.append  # local assignment for speed
+
+        # Minor optimization: turn extract_links check into a flag
+        extract_links_all = self.extract_links == "all"
+        extract_links_section = self.extract_links == section
+
+        # Use local variables for bound methods for performance
+        _parse_td = self._parse_td
+        _text_getter = self._text_getter
+        _href_getter = self._href_getter
+        _attr_getter = self._attr_getter
 
         for tr in rows:
             texts = []  # the output for this row
             next_remainder = []
 
             index = 0
-            tds = self._parse_td(tr)
-            for td in tds:
-                # Append texts from previous rows with rowspan>1 that come
-                # before this <td>
-                while remainder and remainder[0][0] <= index:
+            tds = _parse_td(tr)
+            tds_len = len(tds)
+            td_iter = iter(tds)
+            td_idx = 0
+
+            while td_idx < tds_len or remainder:
+                # Fill in placeholder cells from previous rows
+                while remainder and (td_idx >= tds_len or remainder[0][0] <= index):
                     prev_i, prev_text, prev_rowspan = remainder.pop(0)
                     texts.append(prev_text)
                     if prev_rowspan > 1:
                         next_remainder.append((prev_i, prev_text, prev_rowspan - 1))
                     index += 1
 
-                # Append the text from this <td>, colspan times
-                text = _remove_whitespace(self._text_getter(td))
-                if self.extract_links in ("all", section):
-                    href = self._href_getter(td)
-                    text = (text, href)
-                rowspan = int(self._attr_getter(td, "rowspan") or 1)
-                colspan = int(self._attr_getter(td, "colspan") or 1)
+                if td_idx < tds_len:
+                    td = tds[td_idx]
+                    td_idx += 1
+                    # Remove whitespace only once per cell value
+                    text = _remove_whitespace(_text_getter(td))
+                    if extract_links_all or extract_links_section:
+                        href = _href_getter(td)
+                        text = (text, href)
+                    rowspan_val = _attr_getter(td, "rowspan")
+                    colspan_val = _attr_getter(td, "colspan")
+                    # Avoid calling int() for common-case 1, and avoid or 1 in tight loop
+                    rowspan = (
+                        int(rowspan_val) if rowspan_val and rowspan_val != "1" else 1
+                    )
+                    colspan = (
+                        int(colspan_val) if colspan_val and colspan_val != "1" else 1
+                    )
 
-                for _ in range(colspan):
-                    texts.append(text)
-                    if rowspan > 1:
-                        next_remainder.append((index, text, rowspan - 1))
-                    index += 1
+                    for _ in range(colspan):
+                        texts.append(text)
+                        if rowspan > 1:
+                            next_remainder.append((index, text, rowspan - 1))
+                        index += 1
+
+            # Append texts from previous rows at the final position
 
             # Append texts from previous rows at the final position
             for prev_i, prev_text, prev_rowspan in remainder:
@@ -525,7 +557,7 @@ class _HtmlFrameParser:
                 if prev_rowspan > 1:
                     next_remainder.append((prev_i, prev_text, prev_rowspan - 1))
 
-            all_texts.append(texts)
+            append_all_texts(texts)
             remainder = next_remainder
 
         # Append rows that only appear because the previous row had non-1
@@ -537,7 +569,7 @@ class _HtmlFrameParser:
                 texts.append(prev_text)
                 if prev_rowspan > 1:
                     next_remainder.append((prev_i, prev_text, prev_rowspan - 1))
-            all_texts.append(texts)
+            append_all_texts(texts)
             remainder = next_remainder
 
         return all_texts
@@ -1024,7 +1056,7 @@ def read_html(
     na_values: Iterable[object] | None = None,
     keep_default_na: bool = True,
     displayed_only: bool = True,
-    extract_links: Literal[None, "header", "footer", "body", "all"] = None,
+    extract_links: Literal["header", "footer", "body", "all"] | None = None,
     dtype_backend: DtypeBackend | lib.NoDefault = lib.no_default,
     storage_options: StorageOptions = None,
 ) -> list[DataFrame]:
