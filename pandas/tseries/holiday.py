@@ -127,9 +127,12 @@ def previous_workday(dt: datetime) -> datetime:
     returns previous workday used for observances
     """
     dt -= timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
-        dt -= timedelta(days=1)
+    wd = dt.weekday()
+    # Mon-Fri are 0-4
+    if wd > 4:
+        # If Saturday (5), skip to Friday (subtract one more day)
+        # If Sunday (6), skip to Friday (subtract two more days)
+        dt -= timedelta(days=wd - 4)
     return dt
 
 
@@ -544,7 +547,6 @@ class AbstractHolidayCalendar(metaclass=HolidayCalendarMetaClass):
 
         if not isinstance(other, list):
             other = [other]
-        other_holidays = {holiday.name: holiday for holiday in other}
 
         try:
             base = base.rules
@@ -553,9 +555,12 @@ class AbstractHolidayCalendar(metaclass=HolidayCalendarMetaClass):
 
         if not isinstance(base, list):
             base = [base]
-        base_holidays = {holiday.name: holiday for holiday in base}
 
-        other_holidays.update(base_holidays)
+        other_holidays = {}
+        for holiday in other:
+            other_holidays[holiday.name] = holiday
+        for holiday in base:
+            other_holidays[holiday.name] = holiday
         return list(other_holidays.values())
 
     def merge(self, other, inplace: bool = False):
@@ -636,12 +641,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +659,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
