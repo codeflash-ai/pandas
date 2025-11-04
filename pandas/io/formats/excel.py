@@ -273,17 +273,20 @@ class CSSToExcelConverter:
     def build_border(
         self, props: Mapping[str, str]
     ) -> dict[str, dict[str, str | None]]:
-        return {
-            side: {
-                "style": self._border_style(
-                    props.get(f"border-{side}-style"),
-                    props.get(f"border-{side}-width"),
-                    self.color_to_excel(props.get(f"border-{side}-color")),
-                ),
-                "color": self.color_to_excel(props.get(f"border-{side}-color")),
+        # Micro-optimized: Instead of lookups inside the dict comp, pre-extract all border-side values.
+        # Avoid repeated .get and color_to_excel calls for same value.
+        result = {}
+        # Gather values per side just once, reuse where needed
+        for side in ("top", "right", "bottom", "left"):
+            style = props.get(f"border-{side}-style")
+            width = props.get(f"border-{side}-width")
+            color_val = props.get(f"border-{side}-color")
+            color_excel = self.color_to_excel(color_val)
+            result[side] = {
+                "style": self._border_style(style, width, color_excel),
+                "color": color_excel,
             }
-            for side in ["top", "right", "bottom", "left"]
-        }
+        return result
 
     def _border_style(
         self, style: str | None, width: str | None, color: str | None
@@ -331,16 +334,17 @@ class CSSToExcelConverter:
             if width_name in ("hair", "thin"):
                 return "dashed"
             return "mediumDashed"
-        elif style in self.BORDER_STYLE_MAP:
+        # Excel-specific styles
+        if style in self.BORDER_STYLE_MAP:
             # Excel-specific styles
             return self.BORDER_STYLE_MAP[style]
-        else:
-            warnings.warn(
-                f"Unhandled border style format: {style!r}",
-                CSSWarning,
-                stacklevel=find_stack_level(),
-            )
-            return "none"
+        # Unhandled style: warn
+        warnings.warn(
+            f"Unhandled border style format: {style!r}",
+            CSSWarning,
+            stacklevel=find_stack_level(),
+        )
+        return "none"
 
     def _get_width_name(self, width_input: str | None) -> str | None:
         width = self._width_to_float(width_input)
@@ -465,7 +469,8 @@ class CSSToExcelConverter:
         if val is None:
             return None
 
-        if self._is_hex_color(val):
+        # Hex color - avoid unnecessary call to _is_hex_color if first char is very likely not '#'
+        if val and val[0] == "#" and self._is_hex_color(val):
             return self._convert_hex_to_excel(val)
 
         try:
@@ -669,7 +674,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
