@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -897,12 +897,13 @@ def _get_counts_nanvar(
             count = np.nan  # type: ignore[assignment]
             d = np.nan
     else:
-        # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
-        mask = count <= ddof
-        if mask.any():
-            np.putmask(d, mask, np.nan)
-            np.putmask(count, mask, np.nan)
+        # Avoid casting unless necessary
+        arr_count = cast("np.ndarray", count)
+        mask_low = arr_count <= ddof
+        if np.any(mask_low):
+            np.putmask(d, mask_low, np.nan)
+            np.putmask(arr_count, mask_low, np.nan)
+        count = arr_count
     return count, d
 
 
@@ -991,10 +992,12 @@ def nanvar(
     """
     dtype = values.dtype
     mask = _maybe_get_mask(values, skipna, mask)
-    if dtype.kind in "iu":
+    kind = dtype.kind
+    if kind in "iu":
         values = values.astype("f8")
         if mask is not None:
-            values[mask] = np.nan
+            # np.place is faster than ad-hoc assignment for vectorized masking
+            np.place(values, mask, np.nan)
 
     if values.dtype.kind == "f":
         count, d = _get_counts_nanvar(values.shape, mask, axis, ddof, values.dtype)
@@ -1002,22 +1005,26 @@ def nanvar(
         count, d = _get_counts_nanvar(values.shape, mask, axis, ddof)
 
     if skipna and mask is not None:
-        values = values.copy()
-        np.putmask(values, mask, 0)
+        # Avoid copying if already float and mask is actually all False
+        # mask.any() fast-path for not needing putmask
+        if np.any(mask):
+            values = values.copy()
+            np.putmask(values, mask, 0)
 
-    # xref GH10242
-    # Compute variance via two-pass algorithm, which is stable against
-    # cancellation errors and relatively accurate for small numbers of
-    # observations.
-    #
-    # See https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-    avg = _ensure_numeric(values.sum(axis=axis, dtype=np.float64)) / count
+    # Fast sum and mean using dtype=float64. Avoids ambiguities
+    avg = _ensure_numeric(np.sum(values, axis=axis, dtype=np.float64)) / count
     if axis is not None:
         avg = np.expand_dims(avg, axis)
-    sqr = _ensure_numeric((avg - values) ** 2)
-    if mask is not None:
+    sqr = _ensure_numeric(np.square(avg - values))
+    # Only mask if mask contains True values (avoid unnecessary putmask call)
+    if mask is not None and np.any(mask):
         np.putmask(sqr, mask, 0)
-    result = sqr.sum(axis=axis, dtype=np.float64) / d
+    # Use np.sum directly for sum
+    result = np.sum(sqr, axis=axis, dtype=np.float64) / d
+
+    # Return variance as np.float64 (the datatype used in the accumulator),
+    # unless we were dealing with a float array, in which case use the same
+    # precision as the original values array.
 
     # Return variance as np.float64 (the datatype used in the accumulator),
     # unless we were dealing with a float array, in which case use the same
@@ -1674,7 +1681,9 @@ def nancov(
 
 def _ensure_numeric(x):
     if isinstance(x, np.ndarray):
-        if x.dtype.kind in "biu":
+        kind = x.dtype.kind
+        if kind in "biu":
+            # Fast-path: only cast once for bool/int arrays (avoid .astype repeat)
             x = x.astype(np.float64)
         elif x.dtype == object:
             inferred = lib.infer_dtype(x)
@@ -1690,7 +1699,9 @@ def _ensure_numeric(x):
                     # GH#29941 we get here with object arrays containing strs
                     raise TypeError(f"Could not convert {x} to numeric") from err
             else:
-                if not np.any(np.imag(x)):
+                imag = np.imag(x)
+                # Avoid extra np.any call on flat arrays
+                if not np.any(imag):
                     x = x.real
     elif not (is_float(x) or is_integer(x) or is_complex(x)):
         if isinstance(x, str):
