@@ -28,6 +28,12 @@ def get_console_size() -> tuple[int | None, int | None]:
     # should use Auto-Detection, But only in interactive shell-terminal.
     # Simple. yeah.
 
+    # Fast path: If both width and height are already set (not None), no need for any environment/terminal checks.
+    if display_width is not None and display_height is not None:
+        return display_width, display_height
+
+    # Note: If user sets width/height to None (auto-detection),
+    # or if one of them is None, we may need to compute.
     if in_interactive_session():
         if in_ipython_frontend():
             # sane defaults for interactive non-shell terminal
