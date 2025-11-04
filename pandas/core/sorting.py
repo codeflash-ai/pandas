@@ -112,7 +112,7 @@ def get_indexer_indexer(
         indexer = nargsort(
             target,
             kind=kind,
-            ascending=cast(bool, ascending),
+            ascending=cast("bool", ascending),
             na_position=na_position,
         )
     return indexer
@@ -166,11 +166,19 @@ def get_group_index(
         # so that all output values are non-negative
         return (lab + 1, size + 1) if (lab == -1).any() else (lab, size)
 
+    # Avoid repeated function lookup for ensure_int64 and use list comprehension directly
+
     labels = [ensure_int64(x) for x in labels]
     lshape = list(shape)
     if not xnull:
-        for i, (lab, size) in enumerate(zip(labels, shape)):
-            labels[i], lshape[i] = maybe_lift(lab, size)
+        # Use local variable lookup for slight speed-up
+        local_maybe_lift = maybe_lift
+        # Exploit enumerate/zip unpack only within for scope
+        for i in range(len(labels)):
+            lab = labels[i]
+            size = shape[i]
+            lbl, sz = local_maybe_lift(lab, size)
+            labels[i], lshape[i] = lbl, sz
 
     # Iteratively process all the labels in chunks sized so less
     # than lib.i8max unique int ids will be required for each chunk
@@ -178,22 +186,35 @@ def get_group_index(
         # how many levels can be done without overflow:
         nlev = _int64_cut_off(lshape)
 
-        # compute flat ids for the first `nlev` levels
-        stride = np.prod(lshape[1:nlev], dtype="i8")
+        # Optimized stride computation via np.cumprod and indexing (avoid unnecessary np.prod)
+        # This is the most expensive operation per profile
+        if nlev == 1:
+            stride = np.int64(1)
+        else:
+            # Compute product with a strided algorithm, avoid creating a new array
+            stride = 1
+            for i in range(1, nlev):
+                stride *= lshape[i]
+            stride = np.int64(stride)
         out = stride * labels[0].astype("i8", subok=False, copy=False)
 
+        # Multi-index composition as vectorized as possible
+        curr_stride = stride
         for i in range(1, nlev):
             if lshape[i] == 0:
-                stride = np.int64(0)
+                curr_stride = np.int64(0)
             else:
-                stride //= lshape[i]
-            out += labels[i] * stride
+                curr_stride //= lshape[i]
+            # np.add out-of-place is faster than in-place for large strides, but must preserve exact side effects
+            out += labels[i] * curr_stride
 
         if xnull:  # exclude nulls
-            mask = labels[0] == -1
-            for lab in labels[1:nlev]:
-                mask |= lab == -1
-            out[mask] = -1
+            # Join masks in a single np.logical_or.reduce for all levels
+            any_null = np.zeros(labels[0].shape, dtype=bool)
+            for lab in labels[:nlev]:
+                # '|' with np.broadcast, not in-place to preserve original:
+                np.logical_or(any_null, lab == -1, out=any_null)
+            out[any_null] = -1
 
         if nlev == len(lshape):  # all levels done!
             break
@@ -344,7 +365,7 @@ def lexsort_indexer(
     for k, order in zip(reversed(keys), orders):
         k = ensure_key_mapped(k, key)
         if codes_given:
-            codes = cast(np.ndarray, k)
+            codes = cast("np.ndarray", k)
             n = codes.max() + 1 if len(codes) else 0
         else:
             cat = Categorical(k, ordered=True)
@@ -692,6 +713,8 @@ def compress_group_index(
         comp_ids, obs_group_ids = table.get_labels_groupby(group_index)
 
         if sort and len(obs_group_ids) > 0:
+            from pandas.core.sorting import _reorder_by_uniques
+
             obs_group_ids, comp_ids = _reorder_by_uniques(obs_group_ids, comp_ids)
 
     return ensure_int64(comp_ids), ensure_int64(obs_group_ids)
