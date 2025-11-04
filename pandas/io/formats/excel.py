@@ -261,9 +261,7 @@ class CSSToExcelConverter:
 
     def _get_vertical_alignment(self, props: Mapping[str, str]) -> str | None:
         vertical_align = props.get("vertical-align")
-        if vertical_align:
-            return self.VERTICAL_MAP.get(vertical_align)
-        return None
+        return self.VERTICAL_MAP.get(vertical_align) if vertical_align else None
 
     def _get_is_wrap_text(self, props: Mapping[str, str]) -> bool | None:
         if props.get("white-space") is None:
@@ -669,7 +667,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
