@@ -127,9 +127,12 @@ def previous_workday(dt: datetime) -> datetime:
     returns previous workday used for observances
     """
     dt -= timedelta(days=1)
-    while dt.weekday() > 4:
-        # Mon-Fri are 0-4
-        dt -= timedelta(days=1)
+    wd = dt.weekday()
+    # Mon-Fri are 0-4
+    if wd > 4:
+        # If Saturday (5), skip to Friday (subtract one more day)
+        # If Sunday (6), skip to Friday (subtract two more days)
+        dt -= timedelta(days=wd - 4)
     return dt
 
 
@@ -420,7 +423,10 @@ def get_calendar(name: str) -> AbstractHolidayCalendar:
     name : str
         Calendar name to return an instance of
     """
-    return holiday_calendars[name]()
+    # Save the lookup to a local variable to avoid repeated global dict lookups (micro-optimization)
+    calendars = holiday_calendars
+    factory = calendars[name]
+    return factory()
 
 
 class HolidayCalendarMetaClass(type):
@@ -636,12 +642,17 @@ def HolidayCalendarFactory(name: str, base, other, base_class=AbstractHolidayCal
 
 
 __all__ = [
+    "FR",
+    "MO",
+    "SA",
+    "SU",
+    "TH",
+    "TU",
+    "WE",
+    "HolidayCalendarFactory",
     "after_nearest_workday",
     "before_nearest_workday",
-    "FR",
     "get_calendar",
-    "HolidayCalendarFactory",
-    "MO",
     "nearest_workday",
     "next_monday",
     "next_monday_or_tuesday",
@@ -649,11 +660,6 @@ __all__ = [
     "previous_friday",
     "previous_workday",
     "register",
-    "SA",
-    "SU",
     "sunday_to_monday",
-    "TH",
-    "TU",
-    "WE",
     "weekend_to_monday",
 ]
