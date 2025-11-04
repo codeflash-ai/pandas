@@ -361,7 +361,7 @@ class JoinUnit:
                     # we want to avoid filling with np.nan if we are
                     # using None; we already know that we are all
                     # nulls
-                    values = cast(np.ndarray, self.block.values)
+                    values = cast("np.ndarray", self.block.values)
                     if values.size and values[0, 0] is None:
                         fill_value = None
 
@@ -435,13 +435,15 @@ def _get_empty_dtype(join_units: Sequence[JoinUnit]) -> DtypeObj:
     -------
     dtype
     """
-    if lib.dtypes_all_equal([ju.block.dtype for ju in join_units]):
-        empty_dtype = join_units[0].block.dtype
-        return empty_dtype
+    block_dtypes = [ju.block.dtype for ju in join_units]
 
-    has_none_blocks = any(unit.block.dtype.kind == "V" for unit in join_units)
+    if lib.dtypes_all_equal(block_dtypes):
+        return block_dtypes[0]
 
-    dtypes = [unit.block.dtype for unit in join_units if not unit.is_na]
+    # Efficient generator check for 'V' kind
+    has_none_blocks = any(dtype.kind == "V" for dtype in block_dtypes)
+
+    dtypes = [dtype for dtype, ju in zip(block_dtypes, join_units) if not ju.is_na]
 
     dtype = find_common_type(dtypes)
     if has_none_blocks:
