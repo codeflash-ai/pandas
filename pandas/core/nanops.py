@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +898,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1511,13 +1511,20 @@ def _maybe_null_out(
         return result
 
     if axis is not None and isinstance(result, np.ndarray):
+        # Pre-compute shape[axis] and new_shape only if needed
+        shape_axis = shape[axis]
         if mask is not None:
-            null_mask = (mask.shape[axis] - mask.sum(axis) - min_count) < 0
+            mask_sum = mask.sum(axis)
+            null_mask = (shape_axis - mask_sum - min_count) < 0
         else:
-            # we have no nulls, kept mask=None in _maybe_get_mask
-            below_count = shape[axis] - min_count < 0
+            below_count = shape_axis - min_count < 0
+            # Only compute new_shape and broadcast if needed
             new_shape = shape[:axis] + shape[axis + 1 :]
-            null_mask = np.broadcast_to(below_count, new_shape)
+            null_mask = (
+                np.broadcast_to(below_count, new_shape) if new_shape else below_count
+            )
+
+        # Only proceed if there is something to mask
 
         if np.any(null_mask):
             if is_numeric_dtype(result):
@@ -1563,10 +1570,17 @@ def check_below_min_count(
     """
     if min_count > 0:
         if mask is None:
-            # no missing values, only check size
-            non_nulls = np.prod(shape)
+            # For shape of small length, avoid np.prod overhead
+            if len(shape) == 1:
+                non_nulls = shape[0]
+            elif len(shape) == 2:
+                non_nulls = shape[0] * shape[1]
+            else:
+                # This is rare, so fallback to numpy
+                non_nulls = np.prod(shape)
         else:
-            non_nulls = mask.size - mask.sum()
+            mask_sum = mask.sum()
+            non_nulls = mask.size - mask_sum
         if non_nulls < min_count:
             return True
     return False

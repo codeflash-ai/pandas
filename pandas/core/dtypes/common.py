@@ -63,6 +63,10 @@ if TYPE_CHECKING:
         DtypeObj,
     )
 
+_CLASSES_AND_NOT_DATETIMELIKE_NUMERIC_BOOL = None
+
+_CLASSES_FLOATING = None
+
 DT64NS_DTYPE = conversion.DT64NS_DTYPE
 TD64NS_DTYPE = conversion.TD64NS_DTYPE
 INT64_DTYPE = np.dtype(np.int64)
@@ -1256,9 +1260,23 @@ def is_numeric_dtype(arr_or_dtype) -> bool:
     >>> is_numeric_dtype(np.array([], dtype=np.timedelta64))
     False
     """
-    return _is_dtype_type(
-        arr_or_dtype, _classes_and_not_datetimelike(np.number, np.bool_)
-    ) or _is_dtype(
+    # Fast-path: for ndarray input
+    if isinstance(arr_or_dtype, np.ndarray):
+        dtype = arr_or_dtype.dtype
+        if _get_classes_and_not_datetimelike_numeric_bool()(dtype.type):
+            return True
+        if isinstance(dtype, ExtensionDtype) and dtype._is_numeric:
+            return True
+        return False
+    # Fast-path: np.dtype object
+    if isinstance(arr_or_dtype, np.dtype):
+        if _get_classes_and_not_datetimelike_numeric_bool()(arr_or_dtype.type):
+            return True
+        return False
+    # Fallback: generic route
+    if _is_dtype_type(arr_or_dtype, _get_classes_and_not_datetimelike_numeric_bool()):
+        return True
+    return _is_dtype(
         arr_or_dtype, lambda typ: isinstance(typ, ExtensionDtype) and typ._is_numeric
     )
 
@@ -1348,7 +1366,23 @@ def is_float_dtype(arr_or_dtype) -> bool:
     >>> is_float_dtype(pd.Index([1, 2.0]))
     True
     """
-    return _is_dtype_type(arr_or_dtype, classes(np.floating)) or _is_dtype(
+    # Fast-path: for ndarray input
+    if isinstance(arr_or_dtype, np.ndarray):
+        dtype = arr_or_dtype.dtype
+        if _get_classes_floating()(dtype.type):
+            return True
+        if isinstance(dtype, ExtensionDtype) and dtype.kind in "f":
+            return True
+        return False
+    # Fast-path: np.dtype object
+    if isinstance(arr_or_dtype, np.dtype):
+        if _get_classes_floating()(arr_or_dtype.type):
+            return True
+        return False
+    # Fallback: generic route
+    if _is_dtype_type(arr_or_dtype, _get_classes_floating()):
+        return True
+    return _is_dtype(
         arr_or_dtype, lambda typ: isinstance(typ, ExtensionDtype) and typ.kind in "f"
     )
 
@@ -1888,14 +1922,31 @@ def is_all_strings(value: ArrayLike) -> bool:
     return dtype == "string"
 
 
+def _get_classes_and_not_datetimelike_numeric_bool():
+    global _CLASSES_AND_NOT_DATETIMELIKE_NUMERIC_BOOL
+    if _CLASSES_AND_NOT_DATETIMELIKE_NUMERIC_BOOL is None:
+        _CLASSES_AND_NOT_DATETIMELIKE_NUMERIC_BOOL = _classes_and_not_datetimelike(
+            np.number, np.bool_
+        )
+    return _CLASSES_AND_NOT_DATETIMELIKE_NUMERIC_BOOL
+
+
+def _get_classes_floating():
+    global _CLASSES_FLOATING
+    if _CLASSES_FLOATING is None:
+        _CLASSES_FLOATING = classes(np.floating)
+    return _CLASSES_FLOATING
+
+
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1991,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
