@@ -235,7 +235,7 @@ class SeriesFormatter:
         is_truncated_vertically = max_rows and (len(self.series) > max_rows)
         series = self.series
         if is_truncated_vertically:
-            max_rows = cast(int, max_rows)
+            max_rows = cast("int", max_rows)
             if min_rows:
                 # if min_rows is set (not None or 0), set max_rows to minimum
                 # of both
@@ -323,7 +323,7 @@ class SeriesFormatter:
         if self.is_truncated_vertically:
             n_header_rows = 0
             row_num = self.tr_row_num
-            row_num = cast(int, row_num)
+            row_num = cast("int", row_num)
             width = self.adj.len(fmt_values[row_num - 1])
             if width > 3:
                 dot_str = "..."
@@ -563,7 +563,7 @@ class DataFrameFormatter:
             result = {}
         elif isinstance(col_space, (int, str)):
             result = {"": col_space}
-            result.update({column: col_space for column in self.frame.columns})
+            result.update(dict.fromkeys(self.frame.columns, col_space))
         elif isinstance(col_space, Mapping):
             for column in col_space.keys():
                 if column not in self.frame.columns and column != "":
@@ -680,7 +680,7 @@ class DataFrameFormatter:
                     *self.formatters[-col_num:],
                 ]
         else:
-            col_num = cast(int, self.max_cols)
+            col_num = cast("int", self.max_cols)
             self.tr_frame = self.tr_frame.iloc[:, :col_num]
         self.tr_col_num = col_num
 
@@ -698,7 +698,7 @@ class DataFrameFormatter:
             _slice = np.hstack([np.arange(row_num), np.arange(_len - row_num, _len)])
             self.tr_frame = self.tr_frame.iloc[_slice]
         else:
-            row_num = cast(int, self.max_rows)
+            row_num = cast("int", self.max_rows)
             self.tr_frame = self.tr_frame.iloc[:row_num, :]
         self.tr_row_num = row_num
 
@@ -719,7 +719,7 @@ class DataFrameFormatter:
 
         if is_list_like(self.header):
             # cast here since can't be bool if is_list_like
-            self.header = cast(list[str], self.header)
+            self.header = cast("list[str]", self.header)
             if len(self.header) != len(self.columns):
                 raise ValueError(
                     f"Writing {len(self.columns)} cols "
@@ -765,7 +765,7 @@ class DataFrameFormatter:
     def _get_formatter(self, i: str | int) -> Callable | None:
         if isinstance(self.formatters, (list, tuple)):
             if is_integer(i):
-                i = cast(int, i)
+                i = cast("int", i)
                 return self.formatters[i]
             else:
                 return None
@@ -800,7 +800,7 @@ class DataFrameFormatter:
     def _get_formatted_index(self, frame: DataFrame) -> list[str]:
         # Note: this is only used by to_string() and to_latex(), not by
         # to_html(). so safe to cast col_space here.
-        col_space = {k: cast(int, v) for k, v in self.col_space.items()}
+        col_space = {k: cast("int", v) for k, v in self.col_space.items()}
         index = frame.index
         columns = frame.columns
         fmt = self._get_formatter("__index__")
@@ -1102,13 +1102,13 @@ def format_array(
     fmt_klass: type[_GenericArrayFormatter]
     if lib.is_np_dtype(values.dtype, "M"):
         fmt_klass = _Datetime64Formatter
-        values = cast(DatetimeArray, values)
+        values = cast("DatetimeArray", values)
     elif isinstance(values.dtype, DatetimeTZDtype):
         fmt_klass = _Datetime64TZFormatter
-        values = cast(DatetimeArray, values)
+        values = cast("DatetimeArray", values)
     elif lib.is_np_dtype(values.dtype, "m"):
         fmt_klass = _Timedelta64Formatter
-        values = cast(TimedeltaArray, values)
+        values = cast("TimedeltaArray", values)
     elif isinstance(values.dtype, ExtensionDtype):
         fmt_klass = _ExtensionArrayFormatter
     elif lib.is_np_dtype(values.dtype, "fc"):
@@ -1791,31 +1791,47 @@ def _trim_zeros_float(
     all numbers containing decimals, leaving just one if
     necessary.
     """
-    trimmed = str_floats
     number_regex = re.compile(rf"^\s*[\+-]?[0-9]+\{decimal}[0-9]*$")
 
-    def is_number_with_decimal(x) -> bool:
-        return re.match(number_regex, x) is not None
+    # Inline and optimize number matching using the compiled regex
+    def is_number_with_decimal(x: str) -> bool:
+        return bool(number_regex.match(x))
 
-    def should_trim(values: ArrayLike | list[str]) -> bool:
-        """
-        Determine if an array of strings should be trimmed.
+    # Convert input to a list if necessary only once, for repeated indexing/slicing
+    if isinstance(str_floats, list):
+        trimmed = str_floats[:]
+    else:
+        trimmed = list(str_floats)
 
-        Returns True if all numbers containing decimals (defined by the
-        above regular expression) within the array end in a zero, otherwise
-        returns False.
-        """
-        numbers = [x for x in values if is_number_with_decimal(x)]
-        return len(numbers) > 0 and all(x.endswith("0") for x in numbers)
-
-    while should_trim(trimmed):
-        trimmed = [x[:-1] if is_number_with_decimal(x) else x for x in trimmed]
-
-    # leave one 0 after the decimal points if need be.
-    result = [
-        x + "0" if is_number_with_decimal(x) and x.endswith(decimal) else x
-        for x in trimmed
+    # Cache indices of decimal numbers once to avoid recomputation in loops
+    indices_with_decimal = [
+        i for i, x in enumerate(trimmed) if is_number_with_decimal(x)
     ]
+    # If no numbers fit the regex, just return as per original logic
+    if not indices_with_decimal:
+        return trimmed
+
+    n = len(trimmed)
+    keep_trimming = True
+    while keep_trimming:
+        # Check only decimal numbers if they all end with "0"
+        keep_trimming = True
+        for i in indices_with_decimal:
+            if not trimmed[i].endswith("0"):
+                keep_trimming = False
+                break
+        if keep_trimming:
+            # Only alter target elements
+            for i in indices_with_decimal:
+                trimmed[i] = trimmed[i][:-1]
+
+    # Ensure at least one zero after decimal if ends directly with decimal
+    # *Precompute* the result to minimize function call/regex checks
+    result = trimmed
+    for i in indices_with_decimal:
+        x = result[i]
+        if x.endswith(decimal):
+            result[i] = x + "0"
     return result
 
 
