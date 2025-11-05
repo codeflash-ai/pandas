@@ -199,10 +199,10 @@ def _get_colors_from_color(
         raise ValueError(f"Invalid color argument: {color}")
 
     if _is_single_color(color):
-        color = cast(Color, color)
+        color = cast("Color", color)
         return [color]
 
-    color = cast(Collection[Color], color)
+    color = cast("Collection[Color]", color)
     return list(_gen_list_of_colors_from_iterable(color))
 
 
@@ -241,11 +241,20 @@ def _gen_list_of_colors_from_iterable(color: Collection[Color]) -> Iterator[Colo
 
 def _is_floats_color(color: Color | Collection[Color]) -> bool:
     """Check if color comprises a sequence of floats representing color."""
-    return bool(
-        is_list_like(color)
-        and (len(color) == 3 or len(color) == 4)
-        and all(isinstance(x, (int, float)) for x in color)
-    )
+    # Inlining list-like checks and pre-validating length before calling all()
+    # to avoid unnecessary iteration in all(isinstance(...)) if shape mismatches.
+    if not is_list_like(color):
+        return False
+    color_len = len(color)
+    if color_len not in (3, 4):
+        return False
+    # Use tuple to avoid repeated attribute lookups and generate a fast local reference
+    int_float = (int, float)
+    # Convert to tuple for efficient iteration, short-circuit to False on first failure
+    for x in color:
+        if not isinstance(x, int_float):
+            return False
+    return True
 
 
 def _get_colors_from_color_type(color_type: str, num_colors: int) -> list[Color]:
