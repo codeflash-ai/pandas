@@ -600,7 +600,7 @@ class MPLPlot(ABC):
         elif self.logy == "sym" or self.loglog == "sym":
             [a.set_yscale("symlog") for a in axes]
 
-        axes_seq = cast(Sequence["Axes"], axes)
+        axes_seq = cast("Sequence[Axes]", axes)
         return axes_seq, fig
 
     @property
@@ -1857,11 +1857,14 @@ class BarPlot(MPLPlot):
         self._position = position
         self.tick_pos = np.arange(len(data))
 
-        if is_list_like(bottom):
-            bottom = np.array(bottom)
-        if is_list_like(left):
-            left = np.array(left)
+        # Avoid unnecessary np.array conversion if already an ndarray
+        # np.asarray is faster for known-like objects and will not copy if already ndarray
+        if is_list_like(bottom) and not isinstance(bottom, np.ndarray):
+            bottom = np.asarray(bottom)
         self.bottom = bottom
+
+        if is_list_like(left) and not isinstance(left, np.ndarray):
+            left = np.asarray(left)
         self.left = left
 
         self.log = log
@@ -1907,6 +1910,9 @@ class BarPlot(MPLPlot):
         log: bool = False,
         **kwds,
     ):
+        # Avoid passing unnecessary kwargs, which can slow down
+        # but since we must preserve the contract and **kwds is given,
+        # we can't meaningfully optimize further here.
         return ax.bar(x, y, w, bottom=start, log=log, **kwds)
 
     @property
