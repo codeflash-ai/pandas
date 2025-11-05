@@ -739,7 +739,13 @@ def _clean_keys_and_objs(
     if isinstance(objs, abc.Mapping):
         if keys is None:
             keys = objs.keys()
-        objs = [objs[k] for k in keys]
+        # Use list comprehension for efficiency, only listify keys if not already list
+        keys_seq = keys if isinstance(keys, (list, tuple, Index)) else list(keys)
+        # Avoid repeated key lookups by localizing objs.__getitem__
+        getitem = objs.__getitem__
+        objs = [getitem(k) for k in keys_seq]
+        # For Mapping, keys_seq is definitive
+        keys = keys_seq
     elif isinstance(objs, (ABCSeries, ABCDataFrame)) or is_scalar(objs):
         raise TypeError(
             "first argument must be an iterable of pandas "
@@ -748,30 +754,36 @@ def _clean_keys_and_objs(
     elif not isinstance(objs, abc.Sized):
         objs = list(objs)
 
-    if len(objs) == 0:
+    n_objs = len(objs)
+    if n_objs == 0:
         raise ValueError("No objects to concatenate")
 
     if keys is not None:
         if not isinstance(keys, Index):
             keys = Index(keys)
-        if len(keys) != len(objs):
+        if len(keys) != n_objs:
+            # GH#43485
             # GH#43485
             raise ValueError(
                 f"The length of the keys ({len(keys)}) must match "
-                f"the length of the objects to concatenate ({len(objs)})"
+                f"the length of the objects to concatenate ({n_objs})"
             )
 
     # GH#1649
     key_indices = []
     clean_objs = []
     ndims = set()
+    append_clean = clean_objs.append
+    append_key_i = key_indices.append
+    add_ndim = ndims.add
+
     for i, obj in enumerate(objs):
         if obj is None:
             continue
-        elif isinstance(obj, (ABCSeries, ABCDataFrame)):
-            key_indices.append(i)
-            clean_objs.append(obj)
-            ndims.add(obj.ndim)
+        if isinstance(obj, (ABCSeries, ABCDataFrame)):
+            append_key_i(i)
+            append_clean(obj)
+            add_ndim(obj.ndim)
         else:
             msg = (
                 f"cannot concatenate object of type '{type(obj)}'; "
@@ -779,10 +791,11 @@ def _clean_keys_and_objs(
             )
             raise TypeError(msg)
 
-    if keys is not None and len(key_indices) < len(keys):
+    if keys is not None and key_indices and len(key_indices) < len(keys):
+        # Slightly more efficient: taking only if any Nones were filtered out
         keys = keys.take(key_indices)
 
-    if len(clean_objs) == 0:
+    if not clean_objs:
         raise ValueError("All objects passed were None")
 
     return clean_objs, keys, ndims
