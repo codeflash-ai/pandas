@@ -178,14 +178,21 @@ def _get_colors_from_colormap(
 ) -> list[Color]:
     """Get colors from colormap."""
     cmap = _get_cmap_instance(colormap)
-    return [cmap(num) for num in np.linspace(0, 1, num=num_colors)]
+    linspace = np.linspace(0, 1, num=num_colors)
+    try:
+        colors = cmap(linspace)
+        if hasattr(colors, "shape") and colors.shape[0] == num_colors:
+            return [tuple(row) for row in colors]
+    except Exception:
+        pass
+    return [cmap(num) for num in linspace]
 
 
 def _get_cmap_instance(colormap: str | Colormap) -> Colormap:
     """Get instance of matplotlib colormap."""
     if isinstance(colormap, str):
         cmap = colormap
-        colormap = mpl.colormaps[colormap]
+        colormap = mpl.colormaps[cmap]
         if colormap is None:
             raise ValueError(f"Colormap {cmap} is not recognized")
     return colormap
@@ -199,10 +206,10 @@ def _get_colors_from_color(
         raise ValueError(f"Invalid color argument: {color}")
 
     if _is_single_color(color):
-        color = cast(Color, color)
+        color = cast("Color", color)
         return [color]
 
-    color = cast(Collection[Color], color)
+    color = cast("Collection[Color]", color)
     return list(_gen_list_of_colors_from_iterable(color))
 
 
