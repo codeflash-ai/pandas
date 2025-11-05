@@ -27,6 +27,8 @@ import pandas.core.common as com
 if TYPE_CHECKING:
     from matplotlib.colors import Colormap
 
+_COLOR_CONVERTER = matplotlib.colors.ColorConverter()
+
 
 @overload
 def get_standard_colors(
@@ -199,10 +201,10 @@ def _get_colors_from_color(
         raise ValueError(f"Invalid color argument: {color}")
 
     if _is_single_color(color):
-        color = cast(Color, color)
+        color = cast("Color", color)
         return [color]
 
-    color = cast(Collection[Color], color)
+    color = cast("Collection[Color]", color)
     return list(_gen_list_of_colors_from_iterable(color))
 
 
@@ -241,11 +243,19 @@ def _gen_list_of_colors_from_iterable(color: Collection[Color]) -> Iterator[Colo
 
 def _is_floats_color(color: Color | Collection[Color]) -> bool:
     """Check if color comprises a sequence of floats representing color."""
-    return bool(
-        is_list_like(color)
-        and (len(color) == 3 or len(color) == 4)
-        and all(isinstance(x, (int, float)) for x in color)
-    )
+    if not is_list_like(color):
+        return False
+    try:
+        n = len(color)
+    except TypeError:
+        return False
+    if n != 3 and n != 4:
+        return False
+    # Use tuple to avoid creating a new list in all(). Also short-circuit the generator as soon as a non-number found.
+    for x in color:
+        if not isinstance(x, (int, float)):
+            return False
+    return True
 
 
 def _get_colors_from_color_type(color_type: str, num_colors: int) -> list[Color]:
@@ -298,11 +308,9 @@ def _is_single_string_color(color: Color) -> bool:
         True if `color` looks like a valid color.
         False otherwise.
     """
-    conv = matplotlib.colors.ColorConverter()
     try:
-        # error: Argument 1 to "to_rgba" of "ColorConverter" has incompatible type
-        # "str | Sequence[float]"; expected "tuple[float, float, float] | ..."
-        conv.to_rgba(color)  # type: ignore[arg-type]
+        # Use the cached ColorConverter instance
+        _COLOR_CONVERTER.to_rgba(color)  # type: ignore[arg-type]
     except ValueError:
         return False
     else:
