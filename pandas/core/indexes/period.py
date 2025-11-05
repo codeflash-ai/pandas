@@ -67,9 +67,20 @@ _shared_doc_kwargs = {
 def _new_PeriodIndex(cls, **d):
     # GH13277 for unpickling
     values = d.pop("data")
-    if values.dtype == "int64":
+    values_dtype = values.dtype
+    if values_dtype == "int64":
+        # Avoid constructing new PeriodDtype if possible
         freq = d.pop("freq", None)
-        dtype = PeriodDtype(freq)
+        # The bottleneck is PeriodDtype construction; cache to avoid redundant work.
+        # Note: Caching must be per-process and not leak memory; use a function attribute.
+        cache = getattr(_new_PeriodIndex, "_period_dtype_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(_new_PeriodIndex, "_period_dtype_cache", cache)
+        # hashable key: freq (which may be None)
+        if freq not in cache:
+            cache[freq] = PeriodDtype(freq)
+        dtype = cache[freq]
         values = PeriodArray(values, dtype=dtype)
         return cls._simple_new(values, **d)
     else:
