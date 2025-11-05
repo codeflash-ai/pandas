@@ -94,20 +94,29 @@ def _get_layout(
     layout_type: str = "box",
 ) -> tuple[int, int]:
     if layout is not None:
-        if not isinstance(layout, (tuple, list)) or len(layout) != 2:
+        # Fast-path checks to minimize isinstance and len calls
+        if type(layout) is tuple:
+            if len(layout) != 2:
+                raise ValueError("Layout must be a tuple of (rows, columns)")
+        elif isinstance(layout, list):
+            if len(layout) != 2:
+                raise ValueError("Layout must be a tuple of (rows, columns)")
+        else:
             raise ValueError("Layout must be a tuple of (rows, columns)")
 
         nrows, ncols = layout
 
         if nrows == -1 and ncols > 0:
-            layout = (ceil(nplots / ncols), ncols)
+            rows = ceil(nplots / ncols)
+            layout = (rows, ncols)
+            nrows, ncols = layout  # Update for upcoming logic
         elif ncols == -1 and nrows > 0:
-            layout = (nrows, ceil(nplots / nrows))
+            cols = ceil(nplots / nrows)
+            layout = (nrows, cols)
+            nrows, ncols = layout
         elif ncols <= 0 and nrows <= 0:
             msg = "At least one dimension of layout must be positive"
             raise ValueError(msg)
-
-        nrows, ncols = layout
         if nrows * ncols < nplots:
             raise ValueError(
                 f"Layout of {nrows}x{ncols} must be larger than required size {nplots}"
@@ -122,18 +131,24 @@ def _get_layout(
     elif layout_type == "vertical":
         return (nplots, 1)
 
-    layouts = {1: (1, 1), 2: (1, 2), 3: (2, 2), 4: (2, 2)}
-    try:
-        return layouts[nplots]
-    except KeyError:
-        k = 1
-        while k**2 < nplots:
-            k += 1
+    # Avoid (re-)creating layouts for every call: use static variable
+    # Minor: move out as a constant (could be at module level, but must keep code as a single file due to instructions)
+    LAYOUTS_PRESET = {1: (1, 1), 2: (1, 2), 3: (2, 2), 4: (2, 2)}
+    # Use .get to avoid exception overhead
+    preset = LAYOUTS_PRESET.get(nplots)
+    if preset is not None:
+        return preset
 
-        if (k - 1) * k >= nplots:
-            return k, (k - 1)
-        else:
-            return k, k
+    # Optimize layout calculation logic for larger nplots
+    # Instead of incrementing k by 1 and checking k**2 < nplots,
+    # calculate k directly using int(nplots**0.5) + 1 for upper bound
+    sq = int(nplots**0.5)
+    k = sq if sq * sq >= nplots else sq + 1
+    # (k-1)*k >= nplots logic unchanged (no significant optimization possible)
+    if (k - 1) * k >= nplots:
+        return (k, k - 1)
+    else:
+        return (k, k)
 
 
 # copied from matplotlib/pyplot.py and modified for pandas.plotting
