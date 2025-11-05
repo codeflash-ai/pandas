@@ -89,6 +89,8 @@ if TYPE_CHECKING:
         NpDtype,
     )
 
+_OPERATOR_NAMES = set(dir(operator))
+
 
 UNSIGNED_INT_NUMPY_DTYPES: list[NpDtype] = ["uint8", "uint16", "uint32", "uint64"]
 UNSIGNED_INT_EA_DTYPES: list[Dtype] = ["UInt8", "UInt16", "UInt32", "UInt64"]
@@ -430,14 +432,17 @@ def get_op_from_name(op_name: str) -> Callable:
         A function performing the operation.
     """
     short_opname = op_name.strip("_")
-    try:
-        op = getattr(operator, short_opname)
-    except AttributeError:
-        # Assume it is the reverse operator
-        rop = getattr(operator, short_opname[1:])
-        op = lambda x, y: rop(y, x)
 
-    return op
+    if short_opname in _OPERATOR_NAMES:
+        # Fast path: directly found in operator module
+        return getattr(operator, short_opname)
+
+    # Handle reverse operators like '__radd__'
+    # It will try with short_opname[1:], e.g., 'radd' -> 'add'
+    # Assume op_name always starts with 'r' followed by actual opname when not found
+    # If not, will raise AttributeError as in original logic
+    rop = getattr(operator, short_opname[1:])
+    return lambda x, y: rop(y, x)
 
 
 # -----------------------------------------------------------------------------
@@ -540,6 +545,25 @@ __all__ = [
     "ALL_INT_NUMPY_DTYPES",
     "ALL_NUMPY_DTYPES",
     "ALL_REAL_NUMPY_DTYPES",
+    "BOOL_DTYPES",
+    "BYTES_DTYPES",
+    "COMPLEX_DTYPES",
+    "DATETIME64_DTYPES",
+    "ENDIAN",
+    "FLOAT_EA_DTYPES",
+    "FLOAT_NUMPY_DTYPES",
+    "NARROW_NP_DTYPES",
+    "NP_NAT_OBJECTS",
+    "NULL_OBJECTS",
+    "OBJECT_DTYPES",
+    "SIGNED_INT_EA_DTYPES",
+    "SIGNED_INT_NUMPY_DTYPES",
+    "STRING_DTYPES",
+    "TIMEDELTA64_DTYPES",
+    "UNSIGNED_INT_EA_DTYPES",
+    "UNSIGNED_INT_NUMPY_DTYPES",
+    "SubclassedDataFrame",
+    "SubclassedSeries",
     "assert_almost_equal",
     "assert_attr_equal",
     "assert_categorical_equal",
@@ -563,51 +587,32 @@ __all__ = [
     "assert_sp_array_equal",
     "assert_timedelta_array_equal",
     "at",
-    "BOOL_DTYPES",
     "box_expected",
-    "BYTES_DTYPES",
     "can_set_locale",
-    "COMPLEX_DTYPES",
     "convert_rows_list_to_csv_str",
-    "DATETIME64_DTYPES",
     "decompress_file",
-    "ENDIAN",
     "ensure_clean",
     "external_error_raised",
-    "FLOAT_EA_DTYPES",
-    "FLOAT_NUMPY_DTYPES",
     "get_cython_table_params",
     "get_dtype",
-    "getitem",
-    "get_locales",
     "get_finest_unit",
+    "get_locales",
     "get_obj",
     "get_op_from_name",
+    "getitem",
     "iat",
     "iloc",
     "loc",
     "maybe_produces_warning",
-    "NARROW_NP_DTYPES",
-    "NP_NAT_OBJECTS",
-    "NULL_OBJECTS",
-    "OBJECT_DTYPES",
     "raise_assert_detail",
     "raises_chained_assignment_error",
     "round_trip_pathlib",
     "round_trip_pickle",
-    "setitem",
     "set_locale",
     "set_timezone",
+    "setitem",
     "shares_memory",
-    "SIGNED_INT_EA_DTYPES",
-    "SIGNED_INT_NUMPY_DTYPES",
-    "STRING_DTYPES",
-    "SubclassedDataFrame",
-    "SubclassedSeries",
-    "TIMEDELTA64_DTYPES",
     "to_array",
-    "UNSIGNED_INT_EA_DTYPES",
-    "UNSIGNED_INT_NUMPY_DTYPES",
     "with_csv_dialect",
     "write_to_compressed",
 ]
