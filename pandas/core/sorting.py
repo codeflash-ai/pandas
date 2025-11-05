@@ -112,7 +112,7 @@ def get_indexer_indexer(
         indexer = nargsort(
             target,
             kind=kind,
-            ascending=cast(bool, ascending),
+            ascending=cast("bool", ascending),
             na_position=na_position,
         )
     return indexer
@@ -344,7 +344,7 @@ def lexsort_indexer(
     for k, order in zip(reversed(keys), orders):
         k = ensure_key_mapped(k, key)
         if codes_given:
-            codes = cast(np.ndarray, k)
+            codes = cast("np.ndarray", k)
             n = codes.max() + 1 if len(codes) else 0
         else:
             cat = Categorical(k, ordered=True)
@@ -716,15 +716,15 @@ def _reorder_by_uniques(
 
     # reverse_indexer is where elements came from
     reverse_indexer = np.empty(len(sorter), dtype=np.intp)
-    reverse_indexer.put(sorter, np.arange(len(sorter)))
+    reverse_indexer[sorter] = np.arange(len(sorter))
 
     mask = labels < 0
 
     # move labels to right locations (ie, unsort ascending labels)
-    labels = reverse_indexer.take(labels)
+    labels = reverse_indexer[labels]
     np.putmask(labels, mask, -1)
 
     # sort observed ids
-    uniques = uniques.take(sorter)
+    uniques = uniques[sorter]
 
     return uniques, labels
