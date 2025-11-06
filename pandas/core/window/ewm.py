@@ -66,6 +66,8 @@ if TYPE_CHECKING:
     )
     from pandas.core.generic import NDFrame
 
+_LOG_0_5 = np.log(0.5)
+
 
 def get_center_of_mass(
     comass: float | None,
@@ -81,23 +83,24 @@ def get_center_of_mass(
     if comass is not None:
         if comass < 0:
             raise ValueError("comass must satisfy: comass >= 0")
+        comass = float(comass)
     elif span is not None:
         if span < 1:
             raise ValueError("span must satisfy: span >= 1")
-        comass = (span - 1) / 2
+        comass = float((span - 1) / 2)
     elif halflife is not None:
         if halflife <= 0:
             raise ValueError("halflife must satisfy: halflife > 0")
-        decay = 1 - np.exp(np.log(0.5) / halflife)
-        comass = 1 / decay - 1
+        decay = 1 - np.exp(_LOG_0_5 / halflife)
+        comass = float(1 / decay - 1)
     elif alpha is not None:
         if alpha <= 0 or alpha > 1:
             raise ValueError("alpha must satisfy: 0 < alpha <= 1")
-        comass = (1 - alpha) / alpha
+        comass = float((1 - alpha) / alpha)
     else:
         raise ValueError("Must pass one of comass, span, halflife, or alpha")
 
-    return float(comass)
+    return comass
 
 
 def _calculate_deltas(
