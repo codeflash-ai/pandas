@@ -1334,7 +1334,7 @@ class SQLTable(PandasObject):
     def _sqlalchemy_type(self, col: Index | Series):
         dtype: DtypeArg = self.dtype or {}
         if is_dict_like(dtype):
-            dtype = cast(dict, dtype)
+            dtype = cast("dict", dtype)
             if col.name in dtype:
                 return dtype[col.name]
 
@@ -1883,9 +1883,9 @@ class SQLDatabase(PandasSQL):
                 # Type[str], Type[float], Type[int], Type[complex], Type[bool],
                 # Type[object]]]]"; expected type "Union[ExtensionDtype, str,
                 # dtype[Any], Type[object]]"
-                dtype = {col_name: dtype for col_name in frame}  # type: ignore[misc]
+                dtype = dict.fromkeys(frame, dtype)  # type: ignore[misc]
             else:
-                dtype = cast(dict, dtype)
+                dtype = cast("dict", dtype)
 
             from sqlalchemy.types import TypeEngine
 
@@ -2110,10 +2110,12 @@ class ADBCDatabase(PandasSQL):
     def execute(self, sql: str | Select | TextClause, params=None):
         if not isinstance(sql, str):
             raise TypeError("Query must be a string unless using sqlalchemy.")
-        args = [] if params is None else [params]
         cur = self.con.cursor()
         try:
-            cur.execute(sql, *args)
+            if params is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, params)
             return cur
         except Exception as exc:
             try:
@@ -2566,7 +2568,7 @@ class SQLiteTable(SQLTable):
         ]
 
         ix_cols = [cname for cname, _, is_index in column_names_and_types if is_index]
-        if len(ix_cols):
+        if ix_cols:
             cnames = "_".join(ix_cols)
             cnames_br = ",".join([escape(c) for c in ix_cols])
             create_stmts.append(
@@ -2584,7 +2586,7 @@ class SQLiteTable(SQLTable):
     def _sql_type_name(self, col):
         dtype: DtypeArg = self.dtype or {}
         if is_dict_like(dtype):
-            dtype = cast(dict, dtype)
+            dtype = cast("dict", dtype)
             if col.name in dtype:
                 return dtype[col.name]
 
@@ -2807,9 +2809,9 @@ class SQLiteDatabase(PandasSQL):
                 # Type[str], Type[float], Type[int], Type[complex], Type[bool],
                 # Type[object]]]]"; expected type "Union[ExtensionDtype, str,
                 # dtype[Any], Type[object]]"
-                dtype = {col_name: dtype for col_name in frame}  # type: ignore[misc]
+                dtype = dict.fromkeys(frame, dtype)  # type: ignore[misc]
             else:
-                dtype = cast(dict, dtype)
+                dtype = cast("dict", dtype)
 
             for col, my_type in dtype.items():
                 if not isinstance(my_type, str):
