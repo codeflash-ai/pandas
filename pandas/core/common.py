@@ -214,7 +214,12 @@ def count_not_none(*args) -> int:
     """
     Returns the count of arguments that are not None.
     """
-    return sum(x is not None for x in args)
+    # Manually count in a tight loop for better performance
+    count = 0
+    for x in args:
+        if x is not None:
+            count += 1
+    return count
 
 
 @overload
@@ -307,7 +312,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
