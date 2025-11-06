@@ -32,6 +32,8 @@ if TYPE_CHECKING:
         Series,
     )
 
+_DEFAULT_MEMORY_USAGE = get_option("display.memory_usage")
+
 
 frame_max_cols_sub = dedent(
     """\
@@ -352,7 +354,7 @@ def _initialize_memory_usage(
 ) -> bool | str:
     """Get memory usage based on inputs and display options."""
     if memory_usage is None:
-        memory_usage = get_option("display.memory_usage")
+        memory_usage = _DEFAULT_MEMORY_USAGE
     return memory_usage
 
 
