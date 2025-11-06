@@ -30,8 +30,10 @@ class ArrowPeriodType(pyarrow.ExtensionType):
         return self._freq
 
     def __arrow_ext_serialize__(self) -> bytes:
-        metadata = {"freq": self.freq}
-        return json.dumps(metadata).encode()
+        if not hasattr(self, "_serialized_metadata"):
+            metadata = {"freq": self.freq}
+            self._serialized_metadata = json.dumps(metadata).encode()
+        return self._serialized_metadata
 
     @classmethod
     def __arrow_ext_deserialize__(cls, storage_type, serialized) -> ArrowPeriodType:
