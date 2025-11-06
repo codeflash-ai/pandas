@@ -1334,7 +1334,7 @@ class SQLTable(PandasObject):
     def _sqlalchemy_type(self, col: Index | Series):
         dtype: DtypeArg = self.dtype or {}
         if is_dict_like(dtype):
-            dtype = cast(dict, dtype)
+            dtype = cast("dict", dtype)
             if col.name in dtype:
                 return dtype[col.name]
 
@@ -1883,9 +1883,9 @@ class SQLDatabase(PandasSQL):
                 # Type[str], Type[float], Type[int], Type[complex], Type[bool],
                 # Type[object]]]]"; expected type "Union[ExtensionDtype, str,
                 # dtype[Any], Type[object]]"
-                dtype = {col_name: dtype for col_name in frame}  # type: ignore[misc]
+                dtype = dict.fromkeys(frame, dtype)  # type: ignore[misc]
             else:
-                dtype = cast(dict, dtype)
+                dtype = cast("dict", dtype)
 
             from sqlalchemy.types import TypeEngine
 
@@ -2428,7 +2428,16 @@ _SQL_TYPES = {
 
 def _get_unicode_name(name: object) -> str:
     try:
-        uname = str(name).encode("utf-8", "strict").decode("utf-8")
+        # Optimize: avoid unnecessary encode/decode if already str
+        # and only check directly for non-str objects
+        if isinstance(name, str):
+            uname = name
+        else:
+            uname = str(name)
+        # UTF-8 round-trip will only raise if issue, save the copy if all ascii/valid
+        # But, it's possible for a str to contain surrogate code points in Python 3,
+        # so we must check by encode/decode for strict correctness.
+        uname.encode("utf-8", "strict").decode("utf-8")
     except UnicodeError as err:
         raise ValueError(f"Cannot convert identifier to UTF-8: '{name}'") from err
     return uname
@@ -2443,13 +2452,15 @@ def _get_valid_sqlite_name(name: object) -> str:
     # Wrap the entire thing in double quotes.
 
     uname = _get_unicode_name(name)
-    if not len(uname):
+    if not uname:
         raise ValueError("Empty table or column name specified")
 
-    nul_index = uname.find("\x00")
-    if nul_index >= 0:
+    if "\x00" in uname:
         raise ValueError("SQLite identifier cannot contain NULs")
-    return '"' + uname.replace('"', '""') + '"'
+    # Optimize .replace: Only call if '"' in uname
+    if '"' in uname:
+        uname = uname.replace('"', '""')
+    return f'"{uname}"'
 
 
 class SQLiteTable(SQLTable):
@@ -2566,7 +2577,7 @@ class SQLiteTable(SQLTable):
         ]
 
         ix_cols = [cname for cname, _, is_index in column_names_and_types if is_index]
-        if len(ix_cols):
+        if ix_cols:
             cnames = "_".join(ix_cols)
             cnames_br = ",".join([escape(c) for c in ix_cols])
             create_stmts.append(
@@ -2584,7 +2595,7 @@ class SQLiteTable(SQLTable):
     def _sql_type_name(self, col):
         dtype: DtypeArg = self.dtype or {}
         if is_dict_like(dtype):
-            dtype = cast(dict, dtype)
+            dtype = cast("dict", dtype)
             if col.name in dtype:
                 return dtype[col.name]
 
@@ -2807,9 +2818,9 @@ class SQLiteDatabase(PandasSQL):
                 # Type[str], Type[float], Type[int], Type[complex], Type[bool],
                 # Type[object]]]]"; expected type "Union[ExtensionDtype, str,
                 # dtype[Any], Type[object]]"
-                dtype = {col_name: dtype for col_name in frame}  # type: ignore[misc]
+                dtype = dict.fromkeys(frame, dtype)  # type: ignore[misc]
             else:
-                dtype = cast(dict, dtype)
+                dtype = cast("dict", dtype)
 
             for col, my_type in dtype.items():
                 if not isinstance(my_type, str):
