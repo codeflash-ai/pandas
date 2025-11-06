@@ -109,7 +109,7 @@ def validate_putmask(
     if mask.shape != values.shape:
         raise ValueError("putmask: mask and data must be the same size")
 
-    noop = not mask.any()
+    noop = np.count_nonzero(mask) == 0
     return mask, noop
 
 
@@ -117,6 +117,9 @@ def extract_bool_array(mask: ArrayLike) -> npt.NDArray[np.bool_]:
     """
     If we have a SparseArray or BooleanArray, convert it to ndarray[bool].
     """
+    if isinstance(mask, np.ndarray) and mask.dtype == np.bool_:
+        return mask
+
     if isinstance(mask, ExtensionArray):
         # We could have BooleanArray, Sparse[bool], ...
         #  Except for BooleanArray, this is equivalent to just
