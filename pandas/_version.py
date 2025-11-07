@@ -388,7 +388,9 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
 
 def plus_or_dot(pieces) -> str:
     """Return a + if we don't already have one, else return a ."""
-    if "+" in pieces.get("closest-tag", ""):
+    # pull out closest_tag once, reducing dict lookups
+    closest_tag = pieces.get("closest-tag", "")
+    if "+" in closest_tag:
         return "."
     return "+"
 
@@ -490,20 +492,30 @@ def render_pep440_post(pieces):
     Exceptions:
     1: no tags. 0.postDISTANCE[.dev0]
     """
-    if pieces["closest-tag"]:
-        rendered = pieces["closest-tag"]
-        if pieces["distance"] or pieces["dirty"]:
-            rendered += f".post{pieces['distance']}"
-            if pieces["dirty"]:
-                rendered += ".dev0"
-            rendered += plus_or_dot(pieces)
-            rendered += f"g{pieces['short']}"
+    # Avoid repeated dict lookups by localizing keys
+    closest_tag = pieces["closest-tag"]
+    distance = pieces["distance"]
+    dirty = pieces["dirty"]
+    short = pieces["short"]
+
+    if closest_tag:
+        if distance or dirty:
+            # Pre-build the incremental string parts (small constant count)
+            post_str = f".post{distance}"
+            dev_str = ".dev0" if dirty else ""
+            ghex_str = f"g{short}"
+            # plus_or_dot is called only if distance or dirty
+            rendered = (
+                f"{closest_tag}{post_str}{dev_str}{plus_or_dot(pieces)}{ghex_str}"
+            )
+        else:
+            rendered = closest_tag
     else:
         # exception #1
-        rendered = f"0.post{pieces['distance']}"
-        if pieces["dirty"]:
-            rendered += ".dev0"
-        rendered += f"+g{pieces['short']}"
+        post_str = f"0.post{distance}"
+        dev_str = ".dev0" if dirty else ""
+        ghex_str = f"+g{short}"
+        rendered = f"{post_str}{dev_str}{ghex_str}"
     return rendered
 
 
