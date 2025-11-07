@@ -194,6 +194,11 @@ def std(
     if not values.size or mask.all():
         return libmissing.NA
 
+    # Avoid runtime warning context overhead when not necessary for performance
+    mask_any = mask.any() if mask.size else False
+    if not mask_any:
+        # Fast path: no missing, call directly
+        return np.std(values, axis=axis, ddof=ddof)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return _reductions(
