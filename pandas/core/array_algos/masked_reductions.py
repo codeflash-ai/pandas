@@ -57,8 +57,8 @@ def _reductions(
         else:
             return func(values, axis=axis, **kwargs)
     else:
-        if check_below_min_count(values.shape, mask, min_count) and (
-            axis is None or values.ndim == 1
+        if (axis is None or values.ndim == 1) and check_below_min_count(
+            values.shape, mask, min_count
         ):
             return libmissing.NA
 
