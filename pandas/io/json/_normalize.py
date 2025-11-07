@@ -203,14 +203,27 @@ def _normalise_json_ordered(data: dict[str, Any], separator: str) -> dict[str, A
     -------
     dict or list of dicts, matching `normalised_json_object`
     """
-    top_dict_ = {k: v for k, v in data.items() if not isinstance(v, dict)}
-    nested_dict_ = _normalise_json(
-        data={k: v for k, v in data.items() if isinstance(v, dict)},
-        key_string="",
-        normalized_dict={},
-        separator=separator,
-    )
-    return {**top_dict_, **nested_dict_}
+    # Precompute keys instead of multiple items() iterations
+    top_dict_ = {}
+    nested_dict_input = {}
+    for k, v in data.items():
+        if isinstance(v, dict):
+            nested_dict_input[k] = v
+        else:
+            top_dict_[k] = v
+    # Avoid dict comprehensions for input split above
+
+    # Avoid redundant dictionary merge by merging in-place to avoid a new dict allocation
+    if nested_dict_input:
+        nested_dict_ = _normalise_json(
+            data=nested_dict_input,
+            key_string="",
+            normalized_dict={},
+            separator=separator,
+        )
+        top_dict_.update(nested_dict_)
+    # If no nested dicts, just return top_dict_ as-is
+    return top_dict_
 
 
 def _simple_json_normalize(
@@ -246,24 +259,18 @@ def _simple_json_normalize(
     ...         "nested": {"e": {"c": 1, "d": 2}, "d": 2},
     ...     }
     ... )
-    {\
-'flat1': 1, \
-'dict1.c': 1, \
-'dict1.d': 2, \
-'nested.e.c': 1, \
-'nested.e.d': 2, \
-'nested.d': 2\
-}
+    {'flat1': 1, 'dict1.c': 1, 'dict1.d': 2, 'nested.e.c': 1, 'nested.e.d': 2, 'nested.d': 2}
+
 
     """
-    normalised_json_object = {}
     # expect a dictionary, as most jsons are. However, lists are perfectly valid
     if isinstance(ds, dict):
-        normalised_json_object = _normalise_json_ordered(data=ds, separator=sep)
+        return _normalise_json_ordered(data=ds, separator=sep)
     elif isinstance(ds, list):
-        normalised_json_list = [_simple_json_normalize(row, sep=sep) for row in ds]
-        return normalised_json_list
-    return normalised_json_object
+        # use list comprehension but pre-bind _simple_json_normalize for better performance in large lists
+        func = _simple_json_normalize
+        return [func(row, sep=sep) for row in ds]
+    return {}
 
 
 def json_normalize(
