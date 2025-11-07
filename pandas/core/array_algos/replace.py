@@ -35,12 +35,22 @@ def should_use_regex(regex: bool, to_replace: Any) -> bool:
     """
     if is_re(to_replace):
         regex = True
+        # Don't use regex if the pattern is empty.
+        regex = regex and to_replace.pattern != ""
+        return regex
 
-    regex = regex and is_re_compilable(to_replace)
+    # If regex is not True or to_replace is not compilable, short-circuit
+    if not regex or not is_re_compilable(to_replace):
+        return False
+
+    # Only compile once and reuse the result for empty string check
+    try:
+        pattern_obj = re.compile(to_replace)  # type: ignore[call-overload]
+    except TypeError:
+        return False
 
     # Don't use regex if the pattern is empty.
-    regex = regex and re.compile(to_replace).pattern != ""
-    return regex
+    return pattern_obj.pattern != ""
 
 
 def compare_or_regex_search(

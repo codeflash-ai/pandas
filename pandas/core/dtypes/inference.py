@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
     from pandas._typing import TypeGuard
 
+_NUMBER_TYPES = (Number, np.number)
+
 is_bool = lib.is_bool
 
 is_integer = lib.is_integer
@@ -72,7 +74,7 @@ def is_number(obj: object) -> TypeGuard[Number | np.number]:
     >>> is_number("5")
     False
     """
-    return isinstance(obj, (Number, np.number))
+    return isinstance(obj, _NUMBER_TYPES)
 
 
 def iterable_not_string(obj: object) -> bool:
@@ -204,6 +206,10 @@ def is_re_compilable(obj: object) -> bool:
     >>> is_re_compilable(1)
     False
     """
+    # Fast path: if already a Pattern, it is "compilable"
+    if isinstance(obj, Pattern):
+        return True
+
     try:
         re.compile(obj)  # type: ignore[call-overload]
     except TypeError:
