@@ -202,7 +202,11 @@ def reconstruct_object(typ, obj, axes, dtype, name):
     except AttributeError:
         pass
 
-    res_t = np.result_type(obj.dtype, dtype)
+    # Avoid redundant np.result_type call when dtypes are equal
+    if obj.dtype == dtype:
+        res_t = obj.dtype
+    else:
+        res_t = np.result_type(obj.dtype, dtype)
 
     if not isinstance(typ, partial) and issubclass(typ, PandasObject):
         if name is None:
