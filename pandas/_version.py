@@ -18,6 +18,14 @@ import re
 import subprocess
 import sys
 
+_GIT_REFNAMES = "$Format:%d$"
+
+_GIT_FULL = "$Format:%H$"
+
+_GIT_DATE = "$Format:%ci$"
+
+_KEYWORDS = {"refnames": _GIT_REFNAMES, "full": _GIT_FULL, "date": _GIT_DATE}
+
 
 def get_keywords():
     """Get the keywords needed to look up the version information."""
@@ -25,11 +33,7 @@ def get_keywords():
     # setup.py/versioneer.py will grep for the variable names, so they must
     # each be defined on a line of their own. _version.py will just call
     # get_keywords().
-    git_refnames = "$Format:%d$"
-    git_full = "$Format:%H$"
-    git_date = "$Format:%ci$"
-    keywords = {"refnames": git_refnames, "full": git_full, "date": git_date}
-    return keywords
+    return _KEYWORDS.copy()
 
 
 class VersioneerConfig:
