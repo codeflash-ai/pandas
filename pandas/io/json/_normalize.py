@@ -171,18 +171,24 @@ def _normalise_json(
         e.g., for sep='.', { 'foo' : { 'bar' : 0 } } -> foo.bar
     """
     if isinstance(data, dict):
-        for key, value in data.items():
-            new_key = f"{key_string}{separator}{key}"
-
-            if not key_string:
-                new_key = new_key.removeprefix(separator)
-
-            _normalise_json(
-                data=value,
-                key_string=new_key,
-                normalized_dict=normalized_dict,
-                separator=separator,
-            )
+        if key_string:
+            prefix = f"{key_string}{separator}"
+            for key, value in data.items():
+                new_key = f"{prefix}{key}"
+                _normalise_json(
+                    data=value,
+                    key_string=new_key,
+                    normalized_dict=normalized_dict,
+                    separator=separator,
+                )
+        else:
+            for key, value in data.items():
+                _normalise_json(
+                    data=value,
+                    key_string=key,
+                    normalized_dict=normalized_dict,
+                    separator=separator,
+                )
     else:
         normalized_dict[key_string] = data
     return normalized_dict
@@ -203,9 +209,17 @@ def _normalise_json_ordered(data: dict[str, Any], separator: str) -> dict[str, A
     -------
     dict or list of dicts, matching `normalised_json_object`
     """
-    top_dict_ = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    top_dict_ = {}
+    nested_dict_input = {}
+
+    for k, v in data.items():
+        if isinstance(v, dict):
+            nested_dict_input[k] = v
+        else:
+            top_dict_[k] = v
+
     nested_dict_ = _normalise_json(
-        data={k: v for k, v in data.items() if isinstance(v, dict)},
+        data=nested_dict_input,
         key_string="",
         normalized_dict={},
         separator=separator,
