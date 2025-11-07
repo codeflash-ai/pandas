@@ -36,11 +36,11 @@ def should_use_regex(regex: bool, to_replace: Any) -> bool:
     if is_re(to_replace):
         regex = True
 
-    regex = regex and is_re_compilable(to_replace)
-
-    # Don't use regex if the pattern is empty.
-    regex = regex and re.compile(to_replace).pattern != ""
-    return regex
+    if regex and is_re_compilable(to_replace):
+        compiled = re.compile(to_replace)
+        # Don't use regex if the pattern is empty.
+        return compiled.pattern != ""
+    return False
 
 
 def compare_or_regex_search(
@@ -82,27 +82,34 @@ def compare_or_regex_search(
                 f"Cannot compare types {type_names[0]!r} and {type_names[1]!r}"
             )
 
-    if not regex or not should_use_regex(regex, b):
+    regex_active = regex and should_use_regex(regex, b)
+    if not regex_active:
         # TODO: should use missing.mask_missing?
         op = lambda x: operator.eq(x, b)
     else:
+        if isinstance(b, Pattern):
+            regex_pattern = b
+        else:
+            regex_pattern = re.compile(b)
         op = np.vectorize(
-            lambda x: bool(re.search(b, x))
-            if isinstance(x, str) and isinstance(b, (str, Pattern))
-            else False
+            lambda x: bool(regex_pattern.search(x)) if isinstance(x, str) else False
         )
 
     # GH#32621 use mask to avoid comparing to NAs
     if isinstance(a, np.ndarray) and mask is not None:
-        a = a[mask]
-        result = op(a)
+        a_masked = a[mask]
+        result_masked = op(a_masked)
 
-        if isinstance(result, np.ndarray):
+        if isinstance(result_masked, np.ndarray):
+            # The shape of the mask can differ to that of the result
+            # since we may compare only a subset of a's or b's elements
             # The shape of the mask can differ to that of the result
             # since we may compare only a subset of a's or b's elements
             tmp = np.zeros(mask.shape, dtype=np.bool_)
-            np.place(tmp, mask, result)
+            np.place(tmp, mask, result_masked)
             result = tmp
+        else:
+            result = result_masked
     else:
         result = op(a)
 
