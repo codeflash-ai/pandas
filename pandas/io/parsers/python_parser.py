@@ -227,7 +227,7 @@ class PythonParser(ParserBase):
                     self.pos += 1
                     line = f.readline()
                     lines = self._check_comments([[line]])[0]
-                lines_str = cast(list[str], lines)
+                lines_str = cast("list[str]", lines)
 
                 # since `line` was a string, lines will be a list containing
                 # only a single string
@@ -281,7 +281,7 @@ class PythonParser(ParserBase):
 
         index: Index | None
         columns: Sequence[Hashable] = list(self.orig_names)
-        if not len(content):  # pragma: no cover
+        if not content:  # pragma: no cover
             # DataFrame with the right metadata, even though it's length 0
             # error: Cannot determine type of 'index_col'
             names = dedup_names(
@@ -595,8 +595,7 @@ class PythonParser(ParserBase):
                         joi = list(map(str, header[:-1] if have_mi_columns else header))
                         msg = f"[{','.join(joi)}], len of {len(joi)}, "
                         raise ValueError(
-                            f"Passed header={msg}"
-                            f"but only {self.line_pos} lines in file"
+                            f"Passed header={msg}but only {self.line_pos} lines in file"
                         ) from err
 
                     # We have an empty file, so check
@@ -1052,8 +1051,9 @@ class PythonParser(ParserBase):
             for line in lines
             if (
                 len(line) > 1
-                or len(line) == 1
-                and (not isinstance(line[0], str) or line[0].strip())
+                or (
+                    len(line) == 1 and (not isinstance(line[0], str) or line[0].strip())
+                )
             )
         ]
         return ret
@@ -1218,8 +1218,7 @@ class PythonParser(ParserBase):
 
             for row_num, actual_len in bad_lines:
                 msg = (
-                    f"Expected {col_len} fields in line {row_num + 1}, saw "
-                    f"{actual_len}"
+                    f"Expected {col_len} fields in line {row_num + 1}, saw {actual_len}"
                 )
                 if (
                     self.delimiter
@@ -1436,16 +1435,20 @@ class FixedWidthReader(abc.Iterator):
             A list containing the rows to read.
 
         """
-        if skiprows is None:
-            skiprows = set()
+        # Avoid unnecessary set creation, check directly
+        skipset = skiprows if skiprows is not None else set()
         buffer_rows = []
         detect_rows = []
+        append_buffer = buffer_rows.append
+        append_detect = detect_rows.append
+        count = 0
         for i, row in enumerate(self.f):
-            if i not in skiprows:
-                detect_rows.append(row)
-            buffer_rows.append(row)
-            if len(detect_rows) >= infer_nrows:
-                break
+            append_buffer(row)
+            if i not in skipset:
+                append_detect(row)
+                count += 1
+                if count >= infer_nrows:
+                    break
         self.buffer = iter(buffer_rows)
         return detect_rows
 
