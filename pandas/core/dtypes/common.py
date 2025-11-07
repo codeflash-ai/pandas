@@ -1256,8 +1256,12 @@ def is_numeric_dtype(arr_or_dtype) -> bool:
     >>> is_numeric_dtype(np.array([], dtype=np.timedelta64))
     False
     """
+    # Fast-path: If ExtensionDtype, avoid calling _is_dtype_type unnecessarily
+    if isinstance(arr_or_dtype, ExtensionDtype):
+        return arr_or_dtype._is_numeric
+    # The check order avoids unnecessary function calls for most cases
     return _is_dtype_type(
-        arr_or_dtype, _classes_and_not_datetimelike(np.number, np.bool_)
+        arr_or_dtype, _classes_and_not_datetimelike((np.number, np.bool_))
     ) or _is_dtype(
         arr_or_dtype, lambda typ: isinstance(typ, ExtensionDtype) and typ._is_numeric
     )
@@ -1889,13 +1893,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1945,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
