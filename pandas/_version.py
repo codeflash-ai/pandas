@@ -193,16 +193,23 @@ def git_versions_from_keywords(keywords, tag_prefix, verbose):
         # discover which version we're using, or to work around using an
         # older one.
         date = date.strip().replace(" ", "T", 1).replace(" ", "", 1)
-    refnames = keywords["refnames"].strip()
+
+    refnames_raw = keywords["refnames"]
+    refnames = refnames_raw.strip()
     if refnames.startswith("$Format"):
         if verbose:
             print("keywords are unexpanded, not using")
         raise NotThisMethod("unexpanded keywords, not a git-archive tarball")
-    refs = {r.strip() for r in refnames.strip("()").split(",")}
+    # Avoid building lots of temporaries in sets, and don't materialize 'refs' as a set unnecessarily
+    refs_split = refnames.strip("()").split(",")
+    refs_stripped = map(str.strip, refs_split)
+    # Materialize 'refs' once, as it's used multiple times below
+    refs = list(refs_stripped)
     # starting in git-1.8.3, tags are listed as "tag: foo-1.0" instead of
     # just "foo-1.0". If we see a "tag: " prefix, prefer those.
     TAG = "tag: "
-    tags = {r[len(TAG) :] for r in refs if r.startswith(TAG)}
+    # Pre-filter to those which start with TAG only
+    tags = [r[len(TAG) :] for r in refs if r.startswith(TAG)]
     if not tags:
         # Either we're using git < 1.8.3, or there really are no tags. We use
         # a heuristic: assume all version tags have a digit. The old git %d
@@ -211,15 +218,23 @@ def git_versions_from_keywords(keywords, tag_prefix, verbose):
         # between branches and tags. By ignoring refnames without digits, we
         # filter out many common branch names like "release" and
         # "stabilization", as well as "HEAD" and "master".
-        tags = {r for r in refs if re.search(r"\d", r)}
+        # Unify to set comprehension for faster membership test on tags
+        # And avoid repeated re.compile of the pattern, using a closure
+        digit_search = re.compile(r"\d").search
+        tags = [r for r in refs if digit_search(r)]
         if verbose:
-            print(f"discarding '{','.join(refs - tags)}', no digits")
+            discarded = set(refs) - set(tags)
+            print(f"discarding '{','.join(discarded)}', no digits")
     if verbose:
         print(f"likely tags: {','.join(sorted(tags))}")
     for ref in sorted(tags):
         # sorting will prefer e.g. "2.0" over "2.0rc1"
         if ref.startswith(tag_prefix):
             r = ref[len(tag_prefix) :]
+            # Filter out refs that exactly match prefix or that don't start
+            # with a number once the prefix is stripped (mostly a concern
+            # when prefix is '')
+            # Compile this regex once outside the loop for speed
             # Filter out refs that exactly match prefix or that don't start
             # with a number once the prefix is stripped (mostly a concern
             # when prefix is '')
