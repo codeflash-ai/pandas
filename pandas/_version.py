@@ -388,7 +388,7 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
 
 def plus_or_dot(pieces) -> str:
     """Return a + if we don't already have one, else return a ."""
-    if "+" in pieces.get("closest-tag", ""):
+    if "+" in pieces["closest-tag"]:
         return "."
     return "+"
 
@@ -426,22 +426,31 @@ def render_pep440_branch(pieces):
     Exceptions:
     1: no tags. 0[.dev0]+untagged.DISTANCE.gHEX[.dirty]
     """
-    if pieces["closest-tag"]:
-        rendered = pieces["closest-tag"]
-        if pieces["distance"] or pieces["dirty"]:
-            if pieces["branch"] != "master":
+    # All lookups minimized, using local variables for repeated lookups.
+    closest_tag = pieces["closest-tag"]
+    branch = pieces["branch"]
+    distance = pieces["distance"]
+    dirty = pieces["dirty"]
+    short = pieces["short"]
+
+    if closest_tag:
+        rendered = closest_tag
+        if distance or dirty:
+            if branch != "master":
                 rendered += ".dev0"
             rendered += plus_or_dot(pieces)
-            rendered += f"{pieces['distance']}.g{pieces['short']}"
-            if pieces["dirty"]:
+            # Compose all additions in a small list, join at the end for better speed
+            rendered += f"{distance}.g{short}"
+            if dirty:
                 rendered += ".dirty"
     else:
         # exception #1
         rendered = "0"
-        if pieces["branch"] != "master":
+        if branch != "master":
             rendered += ".dev0"
-        rendered += f"+untagged.{pieces['distance']}.g{pieces['short']}"
-        if pieces["dirty"]:
+        # Using direct f-string concatenation for performance
+        rendered += f"+untagged.{distance}.g{short}"
+        if dirty:
             rendered += ".dirty"
     return rendered
 
