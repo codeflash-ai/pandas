@@ -51,22 +51,30 @@ def _reductions(
         ``min_count`` non-NA values are present the result will be NA.
     axis : int, optional, default None
     """
-    if not skipna:
-        if mask.any() or check_below_min_count(values.shape, None, min_count):
+    # Fast-path: mask is all False
+    if not mask.any():
+        # Even when skipna=True, if there are no reported missing values, mask is all False
+        if check_below_min_count(values.shape, None, min_count):
             return libmissing.NA
-        else:
-            return func(values, axis=axis, **kwargs)
-    else:
-        if check_below_min_count(values.shape, mask, min_count) and (
-            axis is None or values.ndim == 1
-        ):
-            return libmissing.NA
+        return func(values, axis=axis, **kwargs)
 
-        if values.dtype == np.dtype(object):
-            # object dtype does not support `where` without passing an initial
-            values = values[~mask]
-            return func(values, axis=axis, **kwargs)
-        return func(values, where=~mask, axis=axis, **kwargs)
+    # skipna is False
+    if not skipna:
+        return libmissing.NA
+
+    below_min_count = check_below_min_count(values.shape, mask, min_count)
+    if below_min_count and (axis is None or values.ndim == 1):
+        return libmissing.NA
+
+    # For object dtype, cannot reliably use np.where, must mask out values for the func
+    if values.dtype == np.dtype(object):
+        # Short-circuit if mask.all(), as values[~mask] will be empty and can save a copy
+        if mask.all():
+            return func(values[[]], axis=axis, **kwargs)
+        values = values[~mask]
+        return func(values, axis=axis, **kwargs)
+    # Non-object, can do reduction with where
+    return func(values, where=~mask, axis=axis, **kwargs)
 
 
 def sum(
