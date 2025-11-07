@@ -665,8 +665,17 @@ def _infer_precision(base_precision: int, bins: Index) -> int:
     """
     Infer an appropriate precision for _round_frac
     """
+    # Avoid recomputing entire arrays each time, use sets for uniqueness check
+    # which is much faster for small-to-medium bin sizes
+    bins_arr = np.asarray(bins)
     for precision in range(base_precision, 20):
-        levels = np.asarray([_round_frac(b, precision) for b in bins])
-        if algos.unique(levels).size == bins.size:
+        rounded = (_round_frac(b, precision) for b in bins_arr)
+        seen = set()
+        unique_count = 0
+        for val in rounded:
+            if val not in seen:
+                seen.add(val)
+                unique_count += 1
+        if unique_count == bins.size:
             return precision
     return base_precision  # default
