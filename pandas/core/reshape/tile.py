@@ -640,8 +640,11 @@ def _postprocess_for_cut(fac, bins, retbins: bool, original):
     if not retbins:
         return fac
 
-    if isinstance(bins, Index) and is_numeric_dtype(bins.dtype):
-        bins = bins._values
+    # Avoid unnecessary attribute access if dtype is not numeric
+    if isinstance(bins, Index):
+        dtype = bins.dtype
+        if is_numeric_dtype(dtype):
+            bins = bins._values
 
     return fac, bins
 
