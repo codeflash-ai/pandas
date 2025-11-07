@@ -65,7 +65,10 @@ def _any_pandas_objects(terms) -> bool:
     """
     Check a sequence of terms for instances of PandasObject.
     """
-    return any(isinstance(term.value, PandasObject) for term in terms)
+    for term in terms:
+        if isinstance(term.value, PandasObject):
+            return True
+    return False
 
 
 def _filter_special_cases(f) -> Callable[[F], F]:
