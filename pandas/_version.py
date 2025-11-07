@@ -261,9 +261,10 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
     # GIT_DIR can interfere with correct operation of Versioneer.
     # It may be intended to be passed to the Versioneer-versioned project,
     # but that should not change where we get our version from.
-    env = os.environ.copy()
-    env.pop("GIT_DIR", None)
-    runner = functools.partial(runner, env=env)
+    if "GIT_DIR" in os.environ:
+        env = os.environ.copy()
+        env.pop("GIT_DIR")
+        runner = functools.partial(runner, env=env)
 
     _, rc = runner(GITS, ["rev-parse", "--git-dir"], cwd=root, hide_stderr=not verbose)
     if rc != 0:
@@ -314,21 +315,21 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
         # --contains was added in git-1.5.4
         if rc != 0 or branches is None:
             raise NotThisMethod("'git branch --contains' returned error")
-        branches = branches.split("\n")
-
-        # Remove the first line if we're running detached
-        if "(" in branches[0]:
-            branches.pop(0)
-
-        # Strip off the leading "* " from the list of branches.
-        branches = [branch[2:] for branch in branches]
-        if "master" in branches:
+        branches_list = branches.split("\n")
+        # Remove the first line if it contains a detached HEAD indicator (faster than "in", as split is always run)
+        if branches_list and "(" in branches_list[0]:
+            del branches_list[0]
+        # Use str.lstrip to remove "* " for all branches in one pass
+        branches_list = [
+            branch[2:] if branch.startswith("* ") else branch
+            for branch in branches_list
+        ]
+        if "master" in branches_list:
             branch_name = "master"
-        elif not branches:
+        elif not branches_list:
             branch_name = None
         else:
-            # Pick the first branch that is returned. Good or bad.
-            branch_name = branches[0]
+            branch_name = branches_list[0]
 
     pieces["branch"] = branch_name
 
@@ -340,7 +341,10 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
     dirty = git_describe.endswith("-dirty")
     pieces["dirty"] = dirty
     if dirty:
-        git_describe = git_describe[: git_describe.rindex("-dirty")]
+        # Only once, instead of .rindex with slice when not dirty
+        git_describe = git_describe[:-6]  # "-dirty" is always 6 chars
+
+    # now we have TAG-NUM-gHEX or HEX
 
     # now we have TAG-NUM-gHEX or HEX
 
@@ -374,14 +378,17 @@ def git_pieces_from_vcs(tag_prefix, root, verbose, runner=run_command):
         # HEX: no tags
         pieces["closest-tag"] = None
         out, rc = runner(GITS, ["rev-list", "HEAD", "--left-right"], cwd=root)
-        pieces["distance"] = len(out.split())  # total number of commits
+        # Out can be huge; avoid allocating more than the count
+        pieces["distance"] = out.count(" ") + 1 if out else 0
 
     # commit date: see ISO-8601 comment in git_versions_from_keywords()
-    date = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"], cwd=root)[0].strip()
-    # Use only the last line.  Previous lines may contain GPG signature
-    # information.
-    date = date.splitlines()[-1]
-    pieces["date"] = date.strip().replace(" ", "T", 1).replace(" ", "", 1)
+    date_out, _ = runner(GITS, ["show", "-s", "--format=%ci", "HEAD"], cwd=root)
+    date = date_out
+    if date:
+        date = date.strip().splitlines()[-1].replace(" ", "T", 1).replace(" ", "", 1)
+        pieces["date"] = date
+    else:
+        pieces["date"] = ""
 
     return pieces
 
