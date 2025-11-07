@@ -193,7 +193,7 @@ def names_compat(meth: F) -> F:
 
         return meth(self_or_cls, *args, **kwargs)
 
-    return cast(F, new_meth)
+    return cast("F", new_meth)
 
 
 @set_module("pandas")
@@ -562,7 +562,7 @@ class MultiIndex(Index):
             raise TypeError("Input must be a list / sequence of tuple-likes.")
         if is_iterator(tuples):
             tuples = list(tuples)
-        tuples = cast(Collection[tuple[Hashable, ...]], tuples)
+        tuples = cast("Collection[tuple[Hashable, ...]]", tuples)
 
         # handling the empty tuple cases
         if len(tuples) and all(isinstance(e, tuple) and not e for e in tuples):
@@ -592,7 +592,7 @@ class MultiIndex(Index):
             arrays = list(lib.to_object_array_tuples(tuples).T)
         else:
             arrs = zip(*tuples)
-            arrays = cast(list[Sequence[Hashable]], arrs)
+            arrays = cast("list[Sequence[Hashable]]", arrs)
 
         return cls.from_arrays(arrays, sortorder=sortorder, names=names)
 
@@ -4318,25 +4318,35 @@ def cartesian_product(X: list[np.ndarray]) -> list[np.ndarray]:
     if len(X) == 0:
         return []
 
-    lenX = np.fromiter((len(x) for x in X), dtype=np.intp)
-    cumprodX = np.cumprod(lenX)
+    # Optimize: np.fromiter has overhead with generator, use list comprehension for small input sizes
+    # Precompute lengths as an array (avoid Python per-item overhead)
+    lenX = np.array([len(x) for x in X], dtype=np.intp)
+    cumprodX = np.cumprod(lenX, dtype=np.intp)
 
     if np.any(cumprodX < 0):
         raise ValueError("Product space too large to allocate arrays!")
 
-    a = np.roll(cumprodX, 1)
+    # Precompute a as concatenation (avoid rolling an entire array)
+    a = np.empty_like(cumprodX)
     a[0] = 1
+    a[1:] = cumprodX[:-1]
 
-    if cumprodX[-1] != 0:
-        b = cumprodX[-1] / cumprodX
+    prod_total = cumprodX[-1]
+    if prod_total != 0:
+        # Use integer division and avoid float division (faster and precise for array tiling/repeating)
+        b = prod_total // cumprodX
     else:
         # if any factor is empty, the cartesian product is empty
         b = np.zeros_like(cumprodX)
 
-    return [
-        np.tile(
-            np.repeat(x, b[i]),
-            np.prod(a[i]),
-        )
-        for i, x in enumerate(X)
-    ]
+    # Use optimized (faster) approach for numpy arrays:
+    #   - Convert input to arrays early (avoid repeated list-type checks in numpy operations)
+    #   - Use broadcasting-friendly types for repeating/tiling
+    result = []
+    for i, x in enumerate(X):
+        xi = x
+        # Ensure array (only once)
+        xi = np.asarray(xi)
+        res = np.tile(np.repeat(xi, b[i]), a[i])
+        result.append(res)
+    return result
