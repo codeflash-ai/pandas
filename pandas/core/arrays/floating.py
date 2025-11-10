@@ -52,6 +52,8 @@ class FloatingDtype(NumericDtype):
         """
         # This is really only here for compatibility with IntegerDtype
         # Here for compat with IntegerDtype
+        if not copy and values.dtype == dtype:
+            return values
         return values.astype(dtype, copy=copy)
 
 
