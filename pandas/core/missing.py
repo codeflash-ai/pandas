@@ -275,11 +275,10 @@ def validate_limit_direction(
 
 def validate_limit_area(limit_area: str | None) -> Literal["inside", "outside"] | None:
     if limit_area is not None:
-        valid_limit_areas = ["inside", "outside"]
         limit_area = limit_area.lower()
-        if limit_area not in valid_limit_areas:
+        if limit_area not in {"inside", "outside"}:
             raise ValueError(
-                f"Invalid limit_area: expecting one of {valid_limit_areas}, got "
+                f"Invalid limit_area: expecting one of ['inside', 'outside'], got "
                 f"{limit_area}."
             )
     # error: Incompatible return value type (got "Optional[str]", expected
@@ -430,7 +429,7 @@ def _index_to_interp_indices(index: Index, method: str) -> np.ndarray:
 
     if method == "linear":
         inds = xarr
-        inds = cast(np.ndarray, inds)
+        inds = cast("np.ndarray", inds)
     else:
         inds = np.asarray(xarr)
 
@@ -893,7 +892,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return func(values, limit=limit, limit_area=limit_area, mask=mask)
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 @_datetimelike_compat
