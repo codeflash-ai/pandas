@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
     from pandas._typing import TypeGuard
 
+_NUMBER_TYPES = (Number, np.number)
+
 is_bool = lib.is_bool
 
 is_integer = lib.is_integer
@@ -72,7 +74,7 @@ def is_number(obj: object) -> TypeGuard[Number | np.number]:
     >>> is_number("5")
     False
     """
-    return isinstance(obj, (Number, np.number))
+    return isinstance(obj, _NUMBER_TYPES)
 
 
 def iterable_not_string(obj: object) -> bool:
@@ -241,7 +243,8 @@ def is_array_like(obj: object) -> bool:
     >>> is_array_like(("a", "b"))
     False
     """
-    return is_list_like(obj) and hasattr(obj, "dtype")
+    # Check 'dtype' attribute first to avoid unnecessary is_list_like call
+    return hasattr(obj, "dtype") and is_list_like(obj)
 
 
 def is_nested_list_like(obj: object) -> bool:
