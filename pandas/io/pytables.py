@@ -128,6 +128,8 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -461,15 +463,20 @@ def read_hdf(
 
 def _is_metadata_of(group: Node, parent_group: Node) -> bool:
     """Check if a given group is a metadata group for a given parent_group."""
-    if group._v_depth <= parent_group._v_depth:
+    group_depth = group._v_depth
+    parent_depth = parent_group._v_depth
+    if group_depth <= parent_depth:
         return False
 
     current = group
     while current._v_depth > 1:
         parent = current._v_parent
-        if parent == parent_group and current._v_name == "meta":
+        # Check 'meta' name before traversing up, short-circuit on fail
+        if current._v_name != "meta":
+            return False
+        if parent == parent_group:
             return True
-        current = current._v_parent
+        current = parent
     return False
 
 
@@ -1750,7 +1757,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -4505,7 +4512,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4632,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5098,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5265,7 +5272,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
