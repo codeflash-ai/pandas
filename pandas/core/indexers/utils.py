@@ -90,11 +90,23 @@ def is_scalar_indexer(indexer, ndim: int) -> bool:
     -------
     bool
     """
-    if ndim == 1 and is_integer(indexer):
+    # Fast path: avoid redundant type checks and generator overhead
+    if ndim == 1:
+        if is_integer(indexer):
+            # GH37748: allow indexer to be an integer for Series
+            return True
+        # Since ndim==1, any tuple would need len==1; shortcut instead of generator
+        if isinstance(indexer, tuple) and len(indexer) == 1 and is_integer(indexer[0]):
+            return True
+        return False
+    # For ndim > 1, avoid generator overhead and unnecessary allocations
+    if isinstance(indexer, tuple) and len(indexer) == ndim:
+        # Use for-loop with early exit for better performance in all-is tests
+        for x in indexer:
+            if not is_integer(x):
+                return False
         # GH37748: allow indexer to be an integer for Series
         return True
-    if isinstance(indexer, tuple) and len(indexer) == ndim:
-        return all(is_integer(x) for x in indexer)
     return False
 
 
