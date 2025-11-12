@@ -128,6 +128,8 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -1750,7 +1752,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2034,14 +2036,12 @@ class TableIterator:
         self.where = where
 
         # set start/stop if they are not set if we are a table
-        if self.s.is_table:
-            if nrows is None:
-                nrows = 0
-            if start is None:
-                start = 0
-            if stop is None:
-                stop = nrows
-            stop = min(nrows, stop)
+        # Minimize repeated `is_table` attribute lookups and checks
+        s_is_table = self.s.is_table
+        if s_is_table:
+            nrows = nrows if nrows is not None else 0
+            start = start if start is not None else 0
+            stop = min(nrows, stop if stop is not None else nrows)
 
         self.nrows = nrows
         self.start = start
@@ -2049,9 +2049,7 @@ class TableIterator:
 
         self.coordinates = None
         if iterator or chunksize is not None:
-            if chunksize is None:
-                chunksize = 100000
-            self.chunksize = int(chunksize)
+            self.chunksize = int(chunksize) if chunksize is not None else 100000
         else:
             self.chunksize = None
 
@@ -2079,27 +2077,38 @@ class TableIterator:
 
     def get_result(self, coordinates: bool = False):
         #  return the actual iterator
-        if self.chunksize is not None:
-            if not isinstance(self.s, Table):
+        # Optimize: using local reference saves attribute lookups,
+        # plus early branch exit reduces time in hot path.
+        s = self.s
+        chunksize = self.chunksize
+        if chunksize is not None:
+            if not isinstance(s, Table):
                 raise TypeError("can only use an iterator or chunksize on a table")
-
-            self.coordinates = self.s.read_coordinates(where=self.where)
+            self.coordinates = s.read_coordinates(where=self.where)
+            # Returning self is the contract; cannot optimize further meaningfully
 
             return self
 
         # if specified read via coordinates (necessary for multiple selections
         if coordinates:
-            if not isinstance(self.s, Table):
+            if not isinstance(s, Table):
                 raise TypeError("can only read_coordinates on a table")
-            where = self.s.read_coordinates(
+            where = s.read_coordinates(
                 where=self.where, start=self.start, stop=self.stop
             )
         else:
             where = self.where
 
         # directly return the result
-        results = self.func(self.start, self.stop, where)
-        self.close()
+        # Avoid repeated lookups for method, arguments
+        func = self.func
+        start = self.start
+        stop = self.stop
+
+        results = func(start, stop, where)
+        # Instead of method call, inline auto_close check to avoid call overhead
+        if self.auto_close:
+            self.store.close()
         return results
 
 
@@ -3446,11 +3455,11 @@ class Table(Fixed):
         nan_rep=None,
     ) -> None:
         super().__init__(parent, group, encoding=encoding, errors=errors)
-        self.index_axes = index_axes or []
-        self.non_index_axes = non_index_axes or []
-        self.values_axes = values_axes or []
-        self.data_columns = data_columns or []
-        self.info = info or {}
+        self.index_axes = index_axes if index_axes is not None else []
+        self.non_index_axes = non_index_axes if non_index_axes is not None else []
+        self.values_axes = values_axes if values_axes is not None else []
+        self.data_columns = data_columns if data_columns is not None else []
+        self.info = info if info is not None else {}
         self.nan_rep = nan_rep
 
     @property
@@ -4338,12 +4347,18 @@ class Table(Fixed):
         # create the selection
         selection = Selection(self, where=where, start=start, stop=stop)
         coords = selection.select_coords()
-        if selection.filter is not None:
-            for field, op, filt in selection.filter.format():
-                data = self.read_column(
-                    field, start=coords.min(), stop=coords.max() + 1
-                )
-                coords = coords[op(data.iloc[coords - coords.min()], filt).values]
+
+        # Optimize filter-handling: minimize repeated lookups
+        filt = getattr(selection, "filter", None)
+        if filt is not None:
+            filt_fmt = filt.format()
+            coords_min = coords.min()
+            coords_maxp1 = coords.max() + 1
+            for field, op, filt_val in filt_fmt:
+                data = self.read_column(field, start=coords_min, stop=coords_maxp1)
+                # Use iloc with precomputed min value just once
+                vals = data.iloc[coords - coords_min]
+                coords = coords[op(vals, filt_val).values]
 
         return Index(coords)
 
@@ -4505,7 +4520,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4640,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5106,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5265,7 +5280,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
