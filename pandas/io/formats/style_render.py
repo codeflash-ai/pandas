@@ -71,7 +71,8 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+    loader = jinja2.FileSystemLoader(os.path.join(os.path.dirname(__file__), "templates"))
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -2357,7 +2358,7 @@ def _parse_latex_table_styles(table_styles: CSSStyles, selector: str) -> str | N
 def _parse_latex_cell_styles(
     latex_styles: CSSList, display_value: str, convert_css: bool = False
 ) -> str:
-    r"""
+    """
     Mutate the ``display_value`` string including LaTeX commands from ``latex_styles``.
 
     This method builds a recursive latex chain of commands based on the
@@ -2384,21 +2385,53 @@ def _parse_latex_cell_styles(
     """
     if convert_css:
         latex_styles = _parse_latex_css_conversion(latex_styles)
-    for command, options in latex_styles[::-1]:  # in reverse for most recent style
-        formatter = {
-            "--wrap": f"{{\\{command}--to_parse {display_value}}}",
-            "--nowrap": f"\\{command}--to_parse {display_value}",
-            "--lwrap": f"{{\\{command}--to_parse}} {display_value}",
-            "--rwrap": f"\\{command}--to_parse{{{display_value}}}",
-            "--dwrap": f"{{\\{command}--to_parse}}{{{display_value}}}",
-        }
-        display_value = f"\\{command}{options} {display_value}"
-        for arg in ["--nowrap", "--wrap", "--lwrap", "--rwrap", "--dwrap"]:
-            if arg in str(options):
-                display_value = formatter[arg].replace(
-                    "--to_parse", _parse_latex_options_strip(value=options, arg=arg)
-                )
+    # Predefine arg list and avoid repeated str(options) - optimize string search/mutating
+    arg_list = ["--nowrap", "--wrap", "--lwrap", "--rwrap", "--dwrap"]
+    # Loop over latex_styles in reverse with tight local scope
+    styles_reversed = latex_styles[::-1]
+    for command, options in styles_reversed:
+        options_str = str(options)
+        display_value_base = f"\\{command}{options} {display_value}"
+        for arg in arg_list:
+            if arg in options_str:
+                if arg == "--wrap":
+                    # {\cmd options display_value}
+                    display_value = (
+                        "{\\" + command +
+                        _parse_latex_options_strip(value=options, arg=arg) +
+                        f" {display_value}" + "}"
+                    )
+                elif arg == "--nowrap":
+                    # \cmd options display_value
+                    display_value = (
+                        "\\" + command +
+                        _parse_latex_options_strip(value=options, arg=arg) +
+                        f" {display_value}"
+                    )
+                elif arg == "--lwrap":
+                    # {\cmd options} display_value
+                    display_value = (
+                        "{\\" + command +
+                        _parse_latex_options_strip(value=options, arg=arg) +
+                        "}" + f" {display_value}"
+                    )
+                elif arg == "--rwrap":
+                    # \cmd options{display_value}
+                    display_value = (
+                        "\\" + command +
+                        _parse_latex_options_strip(value=options, arg=arg) +
+                        "{" + display_value + "}"
+                    )
+                elif arg == "--dwrap":
+                    # {\cmd options}{display_value}
+                    display_value = (
+                        "{\\" + command +
+                        _parse_latex_options_strip(value=options, arg=arg) +
+                        "}" + "{" + display_value + "}"
+                    )
                 break  # only ever one purposeful entry
+        else:
+            display_value = display_value_base
     return display_value
 
 
@@ -2409,7 +2442,7 @@ def _parse_latex_header_span(
     wrap: bool = False,
     convert_css: bool = False,
 ) -> str:
-    r"""
+    """
     Refactor the cell `display_value` if a 'colspan' or 'rowspan' attribute is present.
 
     'rowspan' and 'colspan' do not occur simultaneously. If they are detected then
@@ -2428,28 +2461,44 @@ def _parse_latex_header_span(
     >>> _parse_latex_header_span(cell, "t", "c")
     '\\multicolumn{3}{c}{text}'
     """
-    display_val = _parse_latex_cell_styles(
-        cell["cellstyle"], cell["display_value"], convert_css
-    )
-    if "attributes" in cell:
+    # Cache local lookups and avoid repeated key access for minor speedup
+    cellstyle = cell["cellstyle"]
+    display_value = cell["display_value"]
+    has_attrs = "attributes" in cell
+    if convert_css or cellstyle:
+        display_val = _parse_latex_cell_styles(cellstyle, display_value, convert_css)
+    else:
+        display_val = display_value
+
+    if has_attrs:
         attrs = cell["attributes"]
         if 'colspan="' in attrs:
-            colspan = attrs[attrs.find('colspan="') + 9 :]  # len('colspan="') = 9
-            colspan = int(colspan[: colspan.find('"')])
-            if "naive-l" == multicol_align:
+            col_start = attrs.find('colspan="') + 9  # len('colspan="') = 9
+            col_end = attrs.find('"', col_start)
+            colspan = int(attrs[col_start:col_end])
+            # rearrange blanks build for naive-l/naive-r to be slighly faster
+            if multicol_align == "naive-l":
                 out = f"{{{display_val}}}" if wrap else f"{display_val}"
                 blanks = " & {}" if wrap else " &"
-                return out + blanks * (colspan - 1)
-            elif "naive-r" == multicol_align:
+                if colspan > 1:
+                    return out + (blanks * (colspan - 1))
+                else:
+                    return out
+            elif multicol_align == "naive-r":
                 out = f"{{{display_val}}}" if wrap else f"{display_val}"
                 blanks = "{} & " if wrap else "& "
-                return blanks * (colspan - 1) + out
-            return f"\\multicolumn{{{colspan}}}{{{multicol_align}}}{{{display_val}}}"
+                if colspan > 1:
+                    return (blanks * (colspan - 1)) + out
+                else:
+                    return out
+            else:
+                return f"\\multicolumn{{{colspan}}}{{{multicol_align}}}{{{display_val}}}"
         elif 'rowspan="' in attrs:
             if multirow_align == "naive":
                 return display_val
-            rowspan = attrs[attrs.find('rowspan="') + 9 :]
-            rowspan = int(rowspan[: rowspan.find('"')])
+            row_start = attrs.find('rowspan="') + 9
+            row_end = attrs.find('"', row_start)
+            rowspan = int(attrs[row_start:row_end])
             return f"\\multirow[{multirow_align}]{{{rowspan}}}{{*}}{{{display_val}}}"
     if wrap:
         return f"{{{display_val}}}"
