@@ -484,10 +484,26 @@ def default_array_ufunc(self, ufunc: np.ufunc, method: str, *inputs, **kwargs):
     -----
     We are assuming that `self` is among `inputs`.
     """
-    if not any(x is self for x in inputs):
+
+    # Optimization: Use identity check with a simple for-loop instead of generator expression + any
+    found_self = False
+    for x in inputs:
+        if x is self:
+            found_self = True
+            break
+    if not found_self:
         raise NotImplementedError
 
-    new_inputs = [x if x is not self else np.asarray(x) for x in inputs]
+    # Optimization: Pre-allocate new_inputs list for faster construction, avoids list comprehension overhead
+    # Also, avoid repeated np.asarray(x) calls if multiple 'self' are present in inputs
+    # Pre-compute np.asarray(self) once, and reuse it
+    arr_self = np.asarray(self)
+    new_inputs = []
+    for x in inputs:
+        if x is not self:
+            new_inputs.append(x)
+        else:
+            new_inputs.append(arr_self)
 
     return getattr(ufunc, method)(*new_inputs, **kwargs)
 
