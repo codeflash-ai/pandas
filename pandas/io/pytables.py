@@ -128,6 +128,8 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -1750,7 +1752,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2464,19 +2466,37 @@ class DataCol(IndexCol):
         dtype: DtypeArg | None = None,
         data=None,
     ) -> None:
-        super().__init__(
-            name=name,
-            values=values,
-            kind=kind,
-            typ=typ,
-            pos=pos,
-            cname=cname,
-            tz=tz,
-            ordered=ordered,
-            table=table,
-            meta=meta,
-            metadata=metadata,
-        )
+        # Direct attribute assignment for faster initialization
+        # 1. Avoid super().__init__ call overhead by inlining IndexCol.__init__
+        # 2. Keep signature and behavioral preservation
+        # 3. Use local variable lookups to minimize getattr overhead
+
+        if not isinstance(name, str):
+            raise ValueError("`name` must be a str.")
+
+        self.values = values
+        self.kind = kind
+        self.typ = typ
+        self.name = name
+        self.cname = cname or name
+        self.axis = None  # IndexCol.__init__ uses axis=None in this context
+        self.pos = pos
+        self.freq = None  # not exposed in DataCol ctor
+        self.tz = tz
+        self.index_name = None  # not exposed in DataCol ctor
+        self.ordered = ordered
+        self.table = table
+        self.meta = meta
+        self.metadata = metadata
+
+        if pos is not None:
+            # set_pos is triggered in IndexCol.__init__ if pos is not None
+            # We replicate that conditional
+            self.set_pos(pos)
+
+        assert isinstance(self.name, str)
+        assert isinstance(self.cname, str)
+
         self.dtype = dtype
         self.data = data
 
@@ -4505,7 +4525,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4645,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5111,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5265,7 +5285,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
