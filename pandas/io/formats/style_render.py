@@ -71,7 +71,8 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+    loader = jinja2.FileSystemLoader(os.path.join(os.path.dirname(__file__), "templates"))
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -2357,7 +2358,7 @@ def _parse_latex_table_styles(table_styles: CSSStyles, selector: str) -> str | N
 def _parse_latex_cell_styles(
     latex_styles: CSSList, display_value: str, convert_css: bool = False
 ) -> str:
-    r"""
+    """
     Mutate the ``display_value`` string including LaTeX commands from ``latex_styles``.
 
     This method builds a recursive latex chain of commands based on the
@@ -2384,21 +2385,33 @@ def _parse_latex_cell_styles(
     """
     if convert_css:
         latex_styles = _parse_latex_css_conversion(latex_styles)
-    for command, options in latex_styles[::-1]:  # in reverse for most recent style
-        formatter = {
-            "--wrap": f"{{\\{command}--to_parse {display_value}}}",
-            "--nowrap": f"\\{command}--to_parse {display_value}",
-            "--lwrap": f"{{\\{command}--to_parse}} {display_value}",
-            "--rwrap": f"\\{command}--to_parse{{{display_value}}}",
-            "--dwrap": f"{{\\{command}--to_parse}}{{{display_value}}}",
-        }
-        display_value = f"\\{command}{options} {display_value}"
-        for arg in ["--nowrap", "--wrap", "--lwrap", "--rwrap", "--dwrap"]:
-            if arg in str(options):
-                display_value = formatter[arg].replace(
-                    "--to_parse", _parse_latex_options_strip(value=options, arg=arg)
+    # Precompute relevant args for fast lookup
+    arg_lookup = ("--nowrap", "--wrap", "--lwrap", "--rwrap", "--dwrap")
+    formatters = None  # lazy create, to avoid repeated dict construction
+    for command, options in reversed(latex_styles):  # in reverse for most recent style
+        if formatters is None:
+            formatters = {
+                "--wrap": "{{\\{command}--to_parse {display_value}}}",
+                "--nowrap": "\\{command}--to_parse {display_value}",
+                "--lwrap": "{{\\{command}--to_parse}} {display_value}",
+                "--rwrap": "\\{command}--to_parse{{{display_value}}}",
+                "--dwrap": "{{\\{command}--to_parse}}{{{display_value}}}",
+            }
+        options_str = str(options)
+        found_arg = None
+        for arg in arg_lookup:
+            if arg in options_str:
+                parsed_option = _parse_latex_options_strip(value=options, arg=arg)
+                display_value = formatters[arg].format(
+                    command=command,
+                    display_value=display_value
+                ).replace(
+                    "--to_parse", parsed_option
                 )
+                found_arg = True
                 break  # only ever one purposeful entry
+        if not found_arg:
+            display_value = f"\\{command}{options} {display_value}"
     return display_value
 
 
@@ -2486,6 +2499,14 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
             return "slshape", f"{arg}"
         return None
 
+
+    # Speed up re.findall by pre-compiling patterns
+    rgb_patterns = [
+        re.compile(r"(?<=\()[0-9\s%]+(?=,)"),
+        re.compile(r"(?<=,)[0-9\s%]+(?=,)"),
+        re.compile(r"(?<=,)[0-9\s%]+(?=\))"),
+    ]
+
     def color(value, user_arg, command, comm_arg):
         """
         CSS colors have 5 formats to process:
@@ -2505,17 +2526,30 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         if value[0] == "#" and len(value) == 4:  # color is short hex code
             val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
             return command, f"[HTML]{{{val}}}{arg}"
-        elif value[:3] == "rgb":  # color is rgb or rgba
-            r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
-            r = float(r[:-1]) / 100 if "%" in r else int(r) / 255
-            g = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[0].strip()
-            g = float(g[:-1]) / 100 if "%" in g else int(g) / 255
+        elif value.startswith("rgb"):
+            # Efficiently extract R, G, B
+            r = rgb_patterns[0].search(value)
+            g = rgb_patterns[1].search(value)
+            b = None
             if value[3] == "a":  # color is rgba
-                b = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[1].strip()
+                b = rgb_patterns[1].findall(value)
+                if len(b) > 1:
+                    b = b[1].strip()
+                else:
+                    b = ""
             else:  # color is rgb
-                b = re.findall("(?<=,)[0-9\\s%]+(?=\\))", value)[0].strip()
-            b = float(b[:-1]) / 100 if "%" in b else int(b) / 255
-            return command, f"[rgb]{{{r:.3f}, {g:.3f}, {b:.3f}}}{arg}"
+                b_match = rgb_patterns[2].search(value)
+                b = b_match.group().strip() if b_match else ""
+            # r, g, b will be '' if not found, avoid crash
+            if r: r_val = r.group().strip()
+            else: r_val = "0"
+            if g: g_val = g.group().strip()
+            else: g_val = "0"
+            b_val = b
+            r_num = float(r_val[:-1]) / 100 if "%" in r_val else int(r_val) / 255
+            g_num = float(g_val[:-1]) / 100 if "%" in g_val else int(g_val) / 255
+            b_num = float(b_val[:-1]) / 100 if "%" in b_val else int(b_val) / 255 if b_val else 0.0
+            return command, f"[rgb]{{{r_num:.3f}, {g_num:.3f}, {b_num:.3f}}}{arg}"
         else:
             return command, f"{{{value}}}{arg}"  # color is likely string-named
 
@@ -2527,19 +2561,21 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
     }
 
     latex_styles: CSSList = []
+    wrap_args = ("--wrap", "--nowrap", "--lwrap", "--dwrap", "--rwrap")
     for attribute, value in styles:
         if isinstance(value, str) and "--latex" in value:
             # return the style without conversion but drop '--latex'
             latex_styles.append((attribute, value.replace("--latex", "")))
         if attribute in CONVERTED_ATTRIBUTES:
             arg = ""
-            for x in ["--wrap", "--nowrap", "--lwrap", "--dwrap", "--rwrap"]:
-                if x in str(value):
+            value_str = str(value)
+            for x in wrap_args:
+                if x in value_str:
                     arg, value = x, _parse_latex_options_strip(value, x)
                     break
             latex_style = CONVERTED_ATTRIBUTES[attribute](value, arg)
             if latex_style is not None:
-                latex_styles.extend([latex_style])
+                latex_styles.append(latex_style)
     return latex_styles
 
 
