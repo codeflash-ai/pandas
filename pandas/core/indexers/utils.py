@@ -148,41 +148,43 @@ def check_setitem_lengths(indexer, value, values) -> bool:
     ValueError
         When the indexer is an ndarray or list and the lengths don't match.
     """
-    no_op = False
 
     if isinstance(indexer, (np.ndarray, list)):
         # We can ignore other listlikes because they are either
         #  a) not necessarily 1-D indexers, e.g. tuple
         #  b) boolean indexers e.g. BoolArray
         if is_list_like(value):
-            if len(indexer) != len(value) and values.ndim == 1:
-                # boolean with truth values == len of the value is ok too
-                if isinstance(indexer, list):
-                    indexer = np.array(indexer)
+            idx_len = len(indexer)
+            val_len = len(value)
+            if idx_len != val_len and values.ndim == 1:
+                indexer_array = (
+                    indexer if isinstance(indexer, np.ndarray) else np.asarray(indexer)
+                )
+                dtype = indexer_array.dtype
                 if not (
-                    isinstance(indexer, np.ndarray)
-                    and indexer.dtype == np.bool_
-                    and indexer.sum() == len(value)
+                    dtype == np.bool_ and np.count_nonzero(indexer_array) == val_len
                 ):
                     raise ValueError(
                         "cannot set using a list-like indexer "
                         "with a different length than the value"
                     )
-            if not len(indexer):
-                no_op = True
+            if idx_len == 0:
+                return True
 
     elif isinstance(indexer, slice):
         if is_list_like(value):
-            if len(value) != length_of_indexer(indexer, values) and values.ndim == 1:
+            val_len = len(value)
+            idx_len = length_of_indexer(indexer, values)
+            if val_len != idx_len and values.ndim == 1:
+                # In case of two dimensional value is used row-wise and broadcasted
                 # In case of two dimensional value is used row-wise and broadcasted
                 raise ValueError(
                     "cannot set using a slice indexer with a "
                     "different length than the value"
                 )
-            if not len(value):
-                no_op = True
-
-    return no_op
+            if val_len == 0:
+                return True
+    return False
 
 
 def validate_indices(indices: np.ndarray, n: int) -> None:
@@ -296,35 +298,36 @@ def length_of_indexer(indexer, target=None) -> int:
     -------
     int
     """
-    if target is not None and isinstance(indexer, slice):
+    # Optimize range case: step is always integer and not zero
+    if isinstance(indexer, range):
+        return (indexer.stop - indexer.start) // indexer.step
+    # Optimize common fast paths: ndarray, list, Series, Index
+    elif isinstance(indexer, (ABCSeries, ABCIndex, np.ndarray, list)):
+        arr = indexer if not isinstance(indexer, list) else np.asarray(indexer)
+        if arr.dtype == bool:
+            # GH#25774, sum True values for boolean mask
+            return np.count_nonzero(arr)
+        return len(arr)
+    # Fast-slice case: only depend on target for length, eliminate redundant assignments
+    elif target is not None and isinstance(indexer, slice):
         target_len = len(target)
-        start = indexer.start
-        stop = indexer.stop
-        step = indexer.step
-        if start is None:
-            start = 0
-        elif start < 0:
+        start = indexer.start if indexer.start is not None else 0
+        stop = (
+            indexer.stop
+            if indexer.stop is not None or indexer.stop is None
+            else target_len
+        )
+        step = indexer.step if indexer.step is not None else 1
+        if start < 0:
             start += target_len
         if stop is None or stop > target_len:
             stop = target_len
         elif stop < 0:
             stop += target_len
-        if step is None:
-            step = 1
-        elif step < 0:
+        if step < 0:
             start, stop = stop + 1, start + 1
             step = -step
         return (stop - start + step - 1) // step
-    elif isinstance(indexer, (ABCSeries, ABCIndex, np.ndarray, list)):
-        if isinstance(indexer, list):
-            indexer = np.array(indexer)
-
-        if indexer.dtype == bool:
-            # GH#25774
-            return indexer.sum()
-        return len(indexer)
-    elif isinstance(indexer, range):
-        return (indexer.stop - indexer.start) // indexer.step
     elif not is_list_like_indexer(indexer):
         return 1
     raise AssertionError("cannot find the length of the indexer")
