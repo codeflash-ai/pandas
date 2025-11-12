@@ -1238,20 +1238,34 @@ def _build_names_mapper(
         a list of column names with duplicate names replaced by dummy names
 
     """
-    dup_names = set(rownames) | set(colnames)
+    # Use set creation efficiently (avoid unnecessary copies)
+    # Single pass through both lists instead of multiple set() calls
+    dup_names = set()
+    # Use set.update for improved efficiency
+    dup_names.update(rownames)
+    dup_names.update(colnames)
 
-    rownames_mapper = {
-        f"row_{i}": name for i, name in enumerate(rownames) if name in dup_names
-    }
-    unique_rownames = [
-        f"row_{i}" if name in dup_names else name for i, name in enumerate(rownames)
-    ]
+    # Pre-allocate lists for better memory efficiency
+    unique_rownames = [None] * len(rownames)
+    unique_colnames = [None] * len(colnames)
+    rownames_mapper = {}
+    colnames_mapper = {}
 
-    colnames_mapper = {
-        f"col_{i}": name for i, name in enumerate(colnames) if name in dup_names
-    }
-    unique_colnames = [
-        f"col_{i}" if name in dup_names else name for i, name in enumerate(colnames)
-    ]
+    # Use for loop to avoid recomputing membership and f-string for each element
+    for i, name in enumerate(rownames):
+        if name in dup_names:
+            new_name = f"row_{i}"
+            rownames_mapper[new_name] = name
+            unique_rownames[i] = new_name
+        else:
+            unique_rownames[i] = name
+
+    for i, name in enumerate(colnames):
+        if name in dup_names:
+            new_name = f"col_{i}"
+            colnames_mapper[new_name] = name
+            unique_colnames[i] = new_name
+        else:
+            unique_colnames[i] = name
 
     return rownames_mapper, unique_rownames, colnames_mapper, unique_colnames
