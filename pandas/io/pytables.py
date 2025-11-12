@@ -128,6 +128,10 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_Table_StringCol = None
+
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -229,6 +233,7 @@ _table_file_open_policy_is_strict = False
 def _tables():
     global _table_mod
     global _table_file_open_policy_is_strict
+    global _Table_StringCol
     if _table_mod is None:
         import tables
 
@@ -241,6 +246,9 @@ def _tables():
             _table_file_open_policy_is_strict = (
                 tables.file._FILE_OPEN_POLICY == "strict"
             )
+
+        # cache StringCol for fast attribute lookup in DataCol.get_atom_string
+        _Table_StringCol = tables.StringCol
 
     return _table_mod
 
@@ -1750,7 +1758,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2556,7 +2564,10 @@ class DataCol(IndexCol):
 
     @classmethod
     def get_atom_string(cls, shape, itemsize):
-        return _tables().StringCol(itemsize=itemsize, shape=shape[0])
+        # Use cached StringCol for faster lookup
+        if _Table_StringCol is None:
+            _tables()  # ensure initialization and caching
+        return _Table_StringCol(itemsize=itemsize, shape=shape[0])
 
     @classmethod
     def get_atom_coltype(cls, kind: str) -> type[Col]:
@@ -4505,7 +4516,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4636,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5102,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5265,7 +5276,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
