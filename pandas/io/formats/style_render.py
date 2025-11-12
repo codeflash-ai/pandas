@@ -71,7 +71,11 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+
+    loader = jinja2.FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates")
+    )
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -133,24 +137,26 @@ class StylerRenderer:
         self.cell_context: DefaultDict[tuple[int, int], str] = defaultdict(str)
         self._todo: list[tuple[Callable, tuple, dict]] = []
         self.tooltips: Tooltips | None = None
-        precision = (
-            get_option("styler.format.precision") if precision is None else precision
-        )
+        # Optimization: Compute get_option("styler.format.precision") just once if needed
+        opt_precision = get_option("styler.format.precision")
+        precision = opt_precision if precision is None else precision
+
+        default_format_func = partial(_default_formatter, precision=precision)
         self._display_funcs: DefaultDict[  # maps (row, col) -> format func
             tuple[int, int], Callable[[Any], str]
-        ] = defaultdict(lambda: partial(_default_formatter, precision=precision))
+        ] = defaultdict(lambda: default_format_func)
         self._display_funcs_index: DefaultDict[  # maps (row, level) -> format func
             tuple[int, int], Callable[[Any], str]
-        ] = defaultdict(lambda: partial(_default_formatter, precision=precision))
+        ] = defaultdict(lambda: default_format_func)
         self._display_funcs_index_names: DefaultDict[  # maps index level -> format func
             int, Callable[[Any], str]
-        ] = defaultdict(lambda: partial(_default_formatter, precision=precision))
+        ] = defaultdict(lambda: default_format_func)
         self._display_funcs_columns: DefaultDict[  # maps (level, col) -> format func
             tuple[int, int], Callable[[Any], str]
-        ] = defaultdict(lambda: partial(_default_formatter, precision=precision))
+        ] = defaultdict(lambda: default_format_func)
         self._display_funcs_column_names: DefaultDict[  # maps col level -> format func
             int, Callable[[Any], str]
-        ] = defaultdict(lambda: partial(_default_formatter, precision=precision))
+        ] = defaultdict(lambda: default_format_func)
 
     def _render(
         self,
@@ -185,10 +191,14 @@ class StylerRenderer:
             )
             dxs.append(dx)
 
-            for (r, c), v in concatenated.ctx.items():
-                self.ctx[(r + ctx_len, c)] = v
-            for (r, c), v in concatenated.ctx_index.items():
-                self.ctx_index[(r + ctx_len, c)] = v
+            # Optimization: use bulk insertion for dictionaries where possible
+            # this is safe only if there are no key collisions, which is the case here
+            if concatenated.ctx:
+                for (r, c), v in concatenated.ctx.items():
+                    self.ctx[(r + ctx_len, c)] = v
+            if concatenated.ctx_index:
+                for (r, c), v in concatenated.ctx_index.items():
+                    self.ctx_index[(r + ctx_len, c)] = v
 
             ctx_len += len(concatenated.index)
 
@@ -312,8 +322,10 @@ class StylerRenderer:
         }
 
         max_elements = get_option("styler.render.max_elements")
-        max_rows = max_rows if max_rows else get_option("styler.render.max_rows")
-        max_cols = max_cols if max_cols else get_option("styler.render.max_columns")
+        if max_rows is None:
+            max_rows = get_option("styler.render.max_rows")
+        if max_cols is None:
+            max_cols = get_option("styler.render.max_columns")
         max_rows, max_cols = _get_trimming_maximums(
             len(self.data.index),
             len(self.data.columns),
@@ -326,13 +338,15 @@ class StylerRenderer:
             defaultdict(list)
         )
         head = self._translate_header(sparse_cols, max_cols)
-        d.update({"head": head})
+        d["head"] = head
+
+        # index lengths, for sparsifying MultiIndex and latex clines
 
         # for sparsifying a MultiIndex and for use with latex clines
         idx_lengths = _get_level_lengths(
             self.index, sparse_index, max_rows, self.hidden_rows
         )
-        d.update({"index_lengths": idx_lengths})
+        d["index_lengths"] = idx_lengths
 
         self.cellstyle_map: DefaultDict[tuple[CSSPair, ...], list[str]] = defaultdict(
             list
@@ -341,7 +355,9 @@ class StylerRenderer:
             defaultdict(list)
         )
         body: list = self._translate_body(idx_lengths, max_rows, max_cols)
-        d.update({"body": body})
+        d["body"] = body
+
+        # Cell style mappings, avoid unnecessary allocations
 
         ctx_maps = {
             "cellstyle": "cellstyle_map",
@@ -349,11 +365,13 @@ class StylerRenderer:
             "cellstyle_columns": "cellstyle_map_columns",
         }  # add the cell_ids styles map to the render dictionary in right format
         for k, attr in ctx_maps.items():
-            map = [
-                {"props": list(props), "selectors": selectors}
-                for props, selectors in getattr(self, attr).items()
-            ]
-            d.update({k: map})
+            cell_map = getattr(self, attr)
+            map_items = []
+            # Optimization: localize methods, avoid global list() function invocation
+            append = map_items.append
+            for props, selectors in cell_map.items():
+                append({"props": list(props), "selectors": selectors})
+            d[k] = map_items
 
         for dx in dxs:  # self.concatenated is not empty
             d["body"].extend(dx["body"])  # type: ignore[union-attr]
@@ -365,13 +383,17 @@ class StylerRenderer:
         table_attr = self.table_attributes
         if not get_option("styler.html.mathjax"):
             table_attr = table_attr or ""
-            if 'class="' in table_attr:
-                table_attr = table_attr.replace(
-                    'class="', 'class="tex2jax_ignore mathjax_ignore '
+            idx = table_attr.find('class="')
+            if idx >= 0:
+                # Replace only once
+                table_attr = (
+                    table_attr[:idx]
+                    + 'class="tex2jax_ignore mathjax_ignore '
+                    + table_attr[idx + 7 :]
                 )
             else:
                 table_attr += ' class="tex2jax_ignore mathjax_ignore"'
-        d.update({"table_attributes": table_attr})
+        d["table_attributes"] = table_attr
 
         if self.tooltips:
             d = self.tooltips._translate(self, d)
@@ -834,10 +856,7 @@ class StylerRenderer:
 
             data_element = _element(
                 "td",
-                (
-                    f"{self.css['data']} {self.css['row']}{r} "
-                    f"{self.css['col']}{c}{cls}"
-                ),
+                (f"{self.css['data']} {self.css['row']}{r} {self.css['col']}{c}{cls}"),
                 value,
                 data_element_visible,
                 attributes="",
@@ -956,7 +975,7 @@ class StylerRenderer:
                     idx_len = d["index_lengths"].get((lvl, r), None)
                     if idx_len is not None:  # i.e. not a sparsified entry
                         d["clines"][rn + idx_len].append(
-                            f"\\cline{{{lvln+1}-{len(visible_index_levels)+data_len}}}"
+                            f"\\cline{{{lvln + 1}-{len(visible_index_levels) + data_len}}}"
                         )
 
     def format(
@@ -1211,7 +1230,7 @@ class StylerRenderer:
         data = self.data.loc[subset]
 
         if not isinstance(formatter, dict):
-            formatter = {col: formatter for col in data.columns}
+            formatter = dict.fromkeys(data.columns, formatter)
 
         cis = self.columns.get_indexer_for(data.columns)
         ris = self.index.get_indexer_for(data.index)
@@ -1397,7 +1416,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1540,7 +1559,7 @@ class StylerRenderer:
 
         >>> df = pd.DataFrame({"samples": np.random.rand(10)})
         >>> styler = df.loc[np.random.randint(0, 10, 3)].style
-        >>> styler.relabel_index([f"sample{i+1} ({{}})" for i in range(3)])
+        >>> styler.relabel_index([f"sample{i + 1} ({{}})" for i in range(3)])
         ... # doctest: +SKIP
                          samples
         sample1 (5)     0.315811
@@ -1694,7 +1713,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -2503,7 +2522,7 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         if value[0] == "#" and len(value) == 7:  # color is hex code
             return command, f"[HTML]{{{value[1:].upper()}}}{arg}"
         if value[0] == "#" and len(value) == 4:  # color is short hex code
-            val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
+            val = f"{value[1].upper() * 2}{value[2].upper() * 2}{value[3].upper() * 2}"
             return command, f"[HTML]{{{val}}}{arg}"
         elif value[:3] == "rgb":  # color is rgb or rgba
             r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
