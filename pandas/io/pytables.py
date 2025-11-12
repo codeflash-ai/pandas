@@ -128,6 +128,10 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_INT64COL_CACHE = {}
+
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -1750,7 +1754,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -2583,6 +2587,15 @@ class DataCol(IndexCol):
 
     @classmethod
     def get_atom_timedelta64(cls, shape):
+        if (
+            isinstance(shape, (tuple, list))
+            and len(shape) == 1
+            and isinstance(shape[0], int)
+        ):
+            cache_key = shape[0]
+            if cache_key not in _INT64COL_CACHE:
+                _INT64COL_CACHE[cache_key] = _tables().Int64Col(shape=cache_key)
+            return _INT64COL_CACHE[cache_key]
         return _tables().Int64Col(shape=shape[0])
 
     @property
@@ -4505,7 +4518,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4638,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5104,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5265,7 +5278,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
