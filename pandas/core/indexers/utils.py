@@ -110,11 +110,29 @@ def is_empty_indexer(indexer) -> bool:
     -------
     bool
     """
-    if is_list_like(indexer) and not len(indexer):
-        return True
+    # Short-circuit for most common/faster cases
+    if isinstance(indexer, np.ndarray):
+        if indexer.size == 0:
+            return True
+        # Avoid further checks if possible
+    elif is_list_like(indexer) and not isinstance(indexer, (str, bytes)):
+        # avoid treating strings as list-like
+        if not len(indexer):
+            return True
+
+    # Avoid making tuple unless necessary
     if not isinstance(indexer, tuple):
         indexer = (indexer,)
-    return any(isinstance(idx, np.ndarray) and len(idx) == 0 for idx in indexer)
+
+    # Use a local variable for fast lookup
+    ndarray = np.ndarray
+    for idx in indexer:
+        # Use size attribute (faster for ndarray) and avoid calling len()
+        if isinstance(idx, ndarray):
+            if idx.size == 0:
+                return True
+
+    return False
 
 
 # -----------------------------------------------------------
