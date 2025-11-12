@@ -94,7 +94,7 @@ class disallow:
                     raise TypeError(e) from e
                 raise
 
-        return cast(F, _f)
+        return cast("F", _f)
 
 
 class bottleneck_switch:
@@ -150,7 +150,7 @@ class bottleneck_switch:
 
             return result
 
-        return cast(F, f)
+        return cast("F", f)
 
 
 def _bn_ok_dtype(dtype: DtypeObj, name: str) -> bool:
@@ -413,7 +413,7 @@ def _datetimelike_compat(func: F) -> F:
 
         return result
 
-    return cast(F, new_func)
+    return cast("F", new_func)
 
 
 def _na_for_min_count(values: np.ndarray, axis: AxisInt | None) -> Scalar | np.ndarray:
@@ -478,7 +478,7 @@ def maybe_operate_rowwise(func: F) -> F:
 
         return func(values, axis=axis, **kwargs)
 
-    return cast(F, newfunc)
+    return cast("F", newfunc)
 
 
 def nanany(
@@ -712,7 +712,7 @@ def nanmean(
     the_sum = _ensure_numeric(the_sum)
 
     if axis is not None and getattr(the_sum, "ndim", False):
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         with np.errstate(all="ignore"):
             # suppress division by zero warnings
             the_mean = the_sum / count
@@ -898,7 +898,7 @@ def _get_counts_nanvar(
             d = np.nan
     else:
         # count is not narrowed by is_float check
-        count = cast(np.ndarray, count)
+        count = cast("np.ndarray", count)
         mask = count <= ddof
         if mask.any():
             np.putmask(d, mask, np.nan)
@@ -1325,6 +1325,8 @@ def nankurt(
     -1.2892561983471076
     """
     mask = _maybe_get_mask(values, skipna, mask)
+    # Can return earlier if mask covers all values or less than 4 valid
+    count = None
     if values.dtype.kind != "f":
         values = values.astype("f8")
         count = _get_counts(values.shape, mask, axis)
@@ -1332,10 +1334,21 @@ def nankurt(
         count = _get_counts(values.shape, mask, axis, dtype=values.dtype)
 
     if skipna and mask is not None:
-        values = values.copy()
-        np.putmask(values, mask, 0)
+        # Only copy if there are missing values
+        if mask.any():
+            # Instead of values.copy(), use np.where for memory efficiency
+            values = np.where(mask, 0, values)
     elif not skipna and mask is not None and mask.any():
         return np.nan
+
+    # For axis reduction, check input count directly before proceeding
+    if isinstance(count, np.ndarray):
+        if np.any(count < 4):
+            # Any location with insufficient count will return nan later, but avoid useless computation now
+            pass
+    else:
+        if count < 4:
+            return np.nan
 
     with np.errstate(invalid="ignore", divide="ignore"):
         mean = values.sum(axis, dtype=np.float64) / count
@@ -1343,10 +1356,11 @@ def nankurt(
         mean = np.expand_dims(mean, axis)
 
     adjusted = values - mean
-    if skipna and mask is not None:
-        np.putmask(adjusted, mask, 0)
-    adjusted2 = adjusted**2
-    adjusted4 = adjusted2**2
+    if skipna and mask is not None and mask.any():
+        # Use np.where for zeroing adjusted values efficiently
+        adjusted = np.where(mask, 0, adjusted)
+    adjusted2 = adjusted * adjusted
+    adjusted4 = adjusted2 * adjusted2
     m2 = adjusted2.sum(axis, dtype=np.float64)
     m4 = adjusted4.sum(axis, dtype=np.float64)
 
@@ -1378,8 +1392,11 @@ def nankurt(
         result = result.astype(dtype, copy=False)
 
     if isinstance(result, np.ndarray):
-        result = np.where(denominator == 0, 0, result)
-        result[count < 4] = np.nan
+        # Use mask and np.where for assignment
+        zero_mask = denominator == 0
+        result = np.where(zero_mask, 0, result)
+        nan_mask = count < 4
+        result = np.where(nan_mask, np.nan, result)
 
     return result
 
