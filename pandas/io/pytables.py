@@ -128,6 +128,8 @@ if TYPE_CHECKING:
 
     from pandas.core.internals import Block
 
+_VALUES_BLOCK_RE = re.compile(r"values_block_(\d+)")
+
 # versioning attribute
 _version = "0.15.2"
 
@@ -1750,7 +1752,7 @@ class HDFStore:
 
         if self.is_open:
             lkeys = sorted(self.keys())
-            if len(lkeys):
+            if lkeys:
                 keys = []
                 values = []
 
@@ -4505,7 +4507,7 @@ class AppendableTable(Table):
                     masks.append(mask.astype("u1", copy=False))
 
         # consolidate masks
-        if len(masks):
+        if masks:
             mask = masks[0]
             for m in masks[1:]:
                 mask = mask & m
@@ -4625,7 +4627,7 @@ class AppendableTable(Table):
             groups = list(diff[diff > 1].index)
 
             # 1 group
-            if not len(groups):
+            if not groups:
                 groups = [0]
 
             # final element
@@ -5091,7 +5093,7 @@ def _maybe_convert_for_string_atom(
     if bvalues.dtype != object:
         return bvalues
 
-    bvalues = cast(np.ndarray, bvalues)
+    bvalues = cast("np.ndarray", bvalues)
 
     dtype_name = bvalues.dtype.name
     inferred_type = lib.infer_dtype(bvalues, skipna=False)
@@ -5230,13 +5232,26 @@ def _maybe_convert(values: np.ndarray, val_kind: str, encoding: str, errors: str
 
 def _get_converter(kind: str, encoding: str, errors: str):
     if kind == "datetime64":
-        return lambda x: np.asarray(x, dtype="M8[ns]")
+
+        def converter(x):
+            # np.asarray is faster than np.array and supports dtype directly; M8[ns] is the highest precision
+            return np.asarray(x, dtype="M8[ns]")
+
+        return converter
     elif "datetime64" in kind:
-        return lambda x: np.asarray(x, dtype=kind)
+        # Remove lambda creation by using direct function object
+        def converter(x):
+            return np.asarray(x, dtype=kind)
+
+        return converter
     elif kind == "string":
-        return lambda x: _unconvert_string_array(
-            x, nan_rep=None, encoding=encoding, errors=errors
-        )
+        # string uses the helper function with required args
+        def converter(x):
+            return _unconvert_string_array(
+                x, nan_rep=None, encoding=encoding, errors=errors
+            )
+
+        return converter
     else:  # pragma: no cover
         raise ValueError(f"invalid kind {kind}")
 
@@ -5265,7 +5280,7 @@ def _maybe_adjust_name(name: str, version: Sequence[int]) -> str:
         raise ValueError("Version is incorrect, expected sequence of 3 integers.")
 
     if version[0] == 0 and version[1] <= 10 and version[2] == 0:
-        m = re.search(r"values_block_(\d+)", name)
+        m = _VALUES_BLOCK_RE.search(name)
         if m:
             grp = m.groups()[0]
             name = f"values_{grp}"
