@@ -63,6 +63,8 @@ if TYPE_CHECKING:
         Series,
     )
 
+_ALLOWED_TYPE_CONST = frozenset(["string", "empty", "bytes", "mixed", "mixed-integer"])
+
 _shared_docs: dict[str, str] = {}
 _cpython_optimized_encoders = (
     "utf-8",
@@ -119,12 +121,12 @@ def forbid_nonstring_types(
     TypeError
         If the inferred type of the underlying data is in `forbidden`.
     """
-    # deal with None
-    forbidden = [] if forbidden is None else forbidden
-
-    allowed_types = {"string", "empty", "bytes", "mixed", "mixed-integer"} - set(
-        forbidden
-    )
+    # Optimize: turn forbidden into empty tuple instead of list
+    # (smaller/faster for membership test, and immutable.)
+    forbidden = () if forbidden is None else tuple(forbidden)
+    # Optimize: cache allowed_types as a set, built once per decorator creation
+    # (no need to make new set on every function call)
+    allowed_types = _ALLOWED_TYPE_CONST.difference(forbidden)
 
     def _forbid_nonstring_types(func: F) -> F:
         func_name = func.__name__ if name is None else name
@@ -140,13 +142,15 @@ def forbid_nonstring_types(
             return func(self, *args, **kwargs)
 
         wrapper.__name__ = func_name
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _forbid_nonstring_types
 
 
 def _map_and_wrap(name: str | None, docstring: str | None):
-    @forbid_nonstring_types(["bytes"], name=name)
+    # Optimize: avoid creating list every time decorator is called.
+    # Move ["bytes"] to a tuple (faster, smaller, hashable).
+    @forbid_nonstring_types(("bytes",), name=name)
     def wrapper(self):
         result = getattr(self._data.array, f"_str_{name}")()
         return self._wrap_result(
