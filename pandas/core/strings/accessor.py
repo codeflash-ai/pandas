@@ -140,7 +140,7 @@ def forbid_nonstring_types(
             return func(self, *args, **kwargs)
 
         wrapper.__name__ = func_name
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return _forbid_nonstring_types
 
@@ -3817,10 +3817,7 @@ def _result_dtype(arr):
 
 
 def _get_single_group_name(regex: re.Pattern) -> Hashable:
-    if regex.groupindex:
-        return next(iter(regex.groupindex))
-    else:
-        return None
+    return next(iter(regex.groupindex), None)
 
 
 def _get_group_names(regex: re.Pattern) -> list[Hashable] | range:
