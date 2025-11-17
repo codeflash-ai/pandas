@@ -361,7 +361,7 @@ class JoinUnit:
                     # we want to avoid filling with np.nan if we are
                     # using None; we already know that we are all
                     # nulls
-                    values = cast(np.ndarray, self.block.values)
+                    values = cast("np.ndarray", self.block.values)
                     if values.size and values[0, 0] is None:
                         fill_value = None
 
@@ -457,23 +457,30 @@ def _is_uniform_join_units(join_units: list[JoinUnit]) -> bool:
     _concatenate_join_units (which uses `concat_compat`).
 
     """
-    first = join_units[0].block
-    if first.dtype.kind == "V":
+    first_blk = join_units[0].block
+    first_type = type(first_blk)
+    first_dtype = first_blk.dtype
+    first_kind = first_dtype.kind
+
+    if first_kind == "V":
         return False
-    return (
-        # exclude cases where a) ju.block is None or b) we have e.g. Int64+int64
-        all(type(ju.block) is type(first) for ju in join_units)
-        and
-        # e.g. DatetimeLikeBlock can be dt64 or td64, but these are not uniform
-        all(
-            ju.block.dtype == first.dtype
-            # GH#42092 we only want the dtype_equal check for non-numeric blocks
-            #  (for now, may change but that would need a deprecation)
-            or ju.block.dtype.kind in "iub"
-            for ju in join_units
-        )
-        and
-        # no blocks that would get missing values (can lead to type upcasts)
-        # unless we're an extension dtype.
-        all(not ju.is_na or ju.block.is_extension for ju in join_units)
-    )
+
+    # Check type uniformity
+    for ju in join_units:
+        if type(ju.block) is not first_type:
+            return False
+
+    # Check dtype uniformity (with kind-in check)
+    for ju in join_units:
+        if ju.block.dtype == first_dtype:
+            continue
+        if ju.block.dtype.kind in "iub":
+            continue
+        return False
+
+    # Check for missing values (type upcasts), unless extension dtype
+    for ju in join_units:
+        if ju.is_na and not ju.block.is_extension:
+            return False
+
+    return True
