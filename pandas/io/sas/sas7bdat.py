@@ -85,7 +85,7 @@ def _convert_datetimes(sas_datetimes: pd.Series, unit: str) -> pd.Series:
         return pd.Series(dt64ms, index=sas_datetimes.index, copy=False)
     else:
         vals = np.array(sas_datetimes, dtype="M8[D]") + td
-        return pd.Series(vals, dtype="M8[s]", index=sas_datetimes.index, copy=False)
+        return pd.Series(vals.astype("M8[s]"), index=sas_datetimes.index, copy=False)
 
 
 class _Column:
