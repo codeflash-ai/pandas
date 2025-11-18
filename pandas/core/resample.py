@@ -1622,7 +1622,7 @@ class _GroupByMixin(PandasObject, SelectionMixin):
 
         new_rs = type(self)(
             groupby=groupby,
-            parent=cast(Resampler, self),
+            parent=cast("Resampler", self),
             selection=selection,
         )
         return new_rs
@@ -2002,9 +2002,7 @@ class TimeGrouper(Grouper):
             raise ValueError(f"Unsupported value {convention} for `convention`")
 
         if (
-            key is None
-            and obj is not None
-            and isinstance(obj.index, PeriodIndex)  # type: ignore[attr-defined]
+            (key is None and obj is not None and isinstance(obj.index, PeriodIndex))  # type: ignore[attr-defined]
             or (
                 key is not None
                 and obj is not None
@@ -2138,7 +2136,7 @@ class TimeGrouper(Grouper):
     ) -> tuple[BinGrouper, NDFrameT]:
         # create the resampler and return our binner
         r = self._get_resampler(obj)
-        return r._grouper, cast(NDFrameT, r.obj)
+        return r._grouper, cast("NDFrameT", r.obj)
 
     def _get_time_bins(self, ax: DatetimeIndex):
         if not isinstance(ax, DatetimeIndex):
@@ -2388,7 +2386,7 @@ class TimeGrouper(Grouper):
         if isinstance(ax.dtype, ArrowDtype) and ax.dtype.kind in "Mm":
             self._arrow_dtype = ax.dtype
             ax = Index(
-                cast(ArrowExtensionArray, ax.array)._maybe_convert_datelike_array()
+                cast("ArrowExtensionArray", ax.array)._maybe_convert_datelike_array()
             )
         return obj, ax, indexer
 
