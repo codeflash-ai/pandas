@@ -200,7 +200,10 @@ def any_not_none(*args) -> bool:
     """
     Returns a boolean indicating if any argument is not None.
     """
-    return any(arg is not None for arg in args)
+    for arg in args:
+        if arg is not None:
+            return True
+    return False
 
 
 def all_not_none(*args) -> bool:
@@ -307,7 +310,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
