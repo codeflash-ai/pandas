@@ -126,30 +126,35 @@ def is_bool_indexer(key: Any) -> bool:
     check_array_indexer : Check that `key` is a valid array to index,
         and convert to an ndarray.
     """
+    # Fast path for numpy/pandas bool arrays/series/etc
     if isinstance(
         key, (ABCSeries, np.ndarray, ABCIndex, ABCExtensionArray)
     ) and not isinstance(key, ABCMultiIndex):
-        if key.dtype == np.object_:
-            key_array = np.asarray(key)
-
-            if not lib.is_bool_array(key_array):
-                na_msg = "Cannot mask with non-boolean array containing NA / NaN values"
-                if lib.is_bool_array(key_array, skipna=True):
-                    # Don't raise on e.g. ["A", "B", np.nan], see
-                    #  test_loc_getitem_list_of_labels_categoricalindex_with_na
-                    raise ValueError(na_msg)
-                return False
-            return True
-        elif is_bool_dtype(key.dtype):
-            return True
+        key_dtype = getattr(key, "dtype", None)
+        if key_dtype is not None:
+            if key_dtype == np.object_:
+                key_array = np.asarray(key)
+                if not lib.is_bool_array(key_array):
+                    na_msg = (
+                        "Cannot mask with non-boolean array containing NA / NaN values"
+                    )
+                    if lib.is_bool_array(key_array, skipna=True):
+                        # Don't raise on e.g. ["A", "B", np.nan], see
+                        #  test_loc_getitem_list_of_labels_categoricalindex_with_na
+                        raise ValueError(na_msg)
+                    return False
+                return True
+            elif is_bool_dtype(key_dtype):
+                return True
+        return False
     elif isinstance(key, list):
-        # check if np.array(key).dtype would be bool
-        if len(key) > 0:
-            if type(key) is not list:
-                # GH#42461 cython will raise TypeError if we pass a subclass
-                key = list(key)
+        # Minimize overhead: check for list subclasses only if not pure list
+        if type(key) is not list:
+            key = list(key)
+        if key:
             return lib.is_bool_list(key)
 
+        return False
     return False
 
 
@@ -307,7 +312,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
