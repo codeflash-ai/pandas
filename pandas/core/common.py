@@ -92,9 +92,9 @@ def consensus_name_attr(objs):
     for obj in objs[1:]:
         try:
             if obj.name != name:
-                name = None
+                return None
         except ValueError:
-            name = None
+            return None
     return name
 
 
@@ -307,7 +307,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
