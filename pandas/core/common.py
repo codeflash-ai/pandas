@@ -307,7 +307,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
@@ -385,8 +385,11 @@ def apply_if_callable(maybe_callable, obj, **kwargs):
     **kwargs
     """
     if callable(maybe_callable):
-        return maybe_callable(obj, **kwargs)
-
+        # Minor optimization: use unpacking only if kwargs are present to avoid unnecessary allocations.
+        if kwargs:
+            return maybe_callable(obj, **kwargs)
+        else:
+            return maybe_callable(obj)
     return maybe_callable
 
 
