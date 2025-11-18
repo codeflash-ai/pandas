@@ -203,14 +203,37 @@ def _normalise_json_ordered(data: dict[str, Any], separator: str) -> dict[str, A
     -------
     dict or list of dicts, matching `normalised_json_object`
     """
-    top_dict_ = {k: v for k, v in data.items() if not isinstance(v, dict)}
-    nested_dict_ = _normalise_json(
-        data={k: v for k, v in data.items() if isinstance(v, dict)},
-        key_string="",
-        normalized_dict={},
-        separator=separator,
-    )
-    return {**top_dict_, **nested_dict_}
+    # Optimize: Reduce dict creation and function calls, only traverse once
+    # original: top_dict_ = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    #           nested_dict_ = _normalise_json({k: v for k, v in data.items() if isinstance(v, dict)}, ...)
+    #           return {**top_dict_, **nested_dict_}
+    #
+    # Instead, traverse once
+    top_dict_: dict[str, Any] = {}
+    nested_items: list[tuple[str, Any]] = []
+
+    for k, v in data.items():
+        if isinstance(v, dict):
+            nested_items.append((k, v))
+        else:
+            top_dict_[k] = v
+
+    if nested_items:
+        nested_dict_: dict[str, Any] = {}
+        for k, v in nested_items:
+            # Give empty key_string and prepend the top-level key.
+            # Pass k as key_string to _normalise_json
+            # This matches previous outcome, since key_string="" and inside, new_key = key
+            _normalise_json(
+                data=v,
+                key_string=k,
+                normalized_dict=nested_dict_,
+                separator=separator,
+            )
+        # Overlapping keys are impossible on structure so ** merge is same as before
+        return {**top_dict_, **nested_dict_}
+    else:
+        return top_dict_
 
 
 def _simple_json_normalize(
@@ -246,24 +269,17 @@ def _simple_json_normalize(
     ...         "nested": {"e": {"c": 1, "d": 2}, "d": 2},
     ...     }
     ... )
-    {\
-'flat1': 1, \
-'dict1.c': 1, \
-'dict1.d': 2, \
-'nested.e.c': 1, \
-'nested.e.d': 2, \
-'nested.d': 2\
-}
+    {'flat1': 1, 'dict1.c': 1, 'dict1.d': 2, 'nested.e.c': 1, 'nested.e.d': 2, 'nested.d': 2}
+
 
     """
-    normalised_json_object = {}
     # expect a dictionary, as most jsons are. However, lists are perfectly valid
     if isinstance(ds, dict):
-        normalised_json_object = _normalise_json_ordered(data=ds, separator=sep)
+        return _normalise_json_ordered(data=ds, separator=sep)
     elif isinstance(ds, list):
-        normalised_json_list = [_simple_json_normalize(row, sep=sep) for row in ds]
-        return normalised_json_list
-    return normalised_json_object
+        # Optimize: Use list comprehension directly as return value
+        return [_simple_json_normalize(row, sep=sep) for row in ds]
+    return {}
 
 
 def json_normalize(
