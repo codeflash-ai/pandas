@@ -1409,9 +1409,32 @@ def is_bool_dtype(arr_or_dtype) -> bool:
     except (TypeError, ValueError):
         return False
 
+    # Fast path for built-in Python/numpy bool types
+    dtype_type = getattr(dtype, "type", None)
+    if dtype_type is not None and issubclass(dtype_type, np.bool_):
+        return True
+
     if isinstance(dtype, CategoricalDtype):
-        arr_or_dtype = dtype.categories
-        # now we use the special definition for Index
+        idx = dtype.categories
+        # only check ABCIndex for categories since we assign categories above
+        if isinstance(idx, ABCIndex):
+            # Allow Index[object] that is all-bools or Index["boolean"]
+            if idx.inferred_type == "boolean":
+                if not is_bool_dtype(idx.dtype):
+                    # GH#52680
+                    warnings.warn(
+                        "The behavior of is_bool_dtype with an object-dtype Index "
+                        "of bool objects is deprecated. In a future version, "
+                        "this will return False. Cast the Index to a bool dtype instead.",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                return True
+            return False
+        arr_or_dtype = idx  # continue processing if not Index
+
+    # For all other indexes
+    # now we use the special definition for Index
 
     if isinstance(arr_or_dtype, ABCIndex):
         # Allow Index[object] that is all-bools or Index["boolean"]
@@ -1430,7 +1453,7 @@ def is_bool_dtype(arr_or_dtype) -> bool:
     elif isinstance(dtype, ExtensionDtype):
         return getattr(dtype, "_is_boolean", False)
 
-    return issubclass(dtype.type, np.bool_)
+    return False
 
 
 def is_1d_only_ea_dtype(dtype: DtypeObj | None) -> bool:
@@ -1889,13 +1912,14 @@ def is_all_strings(value: ArrayLike) -> bool:
 
 
 __all__ = [
-    "classes",
     "DT64NS_DTYPE",
+    "INT64_DTYPE",
+    "TD64NS_DTYPE",
+    "classes",
     "ensure_float64",
     "ensure_python_int",
     "ensure_str",
     "infer_dtype_from_object",
-    "INT64_DTYPE",
     "is_1d_only_ea_dtype",
     "is_all_strings",
     "is_any_real_numeric_dtype",
@@ -1940,6 +1964,5 @@ __all__ = [
     "is_unsigned_integer_dtype",
     "needs_i8_conversion",
     "pandas_dtype",
-    "TD64NS_DTYPE",
     "validate_all_hashable",
 ]
