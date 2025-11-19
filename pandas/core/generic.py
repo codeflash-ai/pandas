@@ -6047,23 +6047,45 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
                 # of an empty dict is 50x more expensive than the empty check.
                 self.attrs = deepcopy(other.attrs)
 
-            self.flags.allows_duplicate_labels = other.flags.allows_duplicate_labels
-            # For subclasses using _metadata.
-            for name in set(self._metadata) & set(other._metadata):
-                assert isinstance(name, str)
-                object.__setattr__(self, name, getattr(other, name, None))
+            # Assign flags.allows_duplicate_labels only if the value differs
+            # (since this is a simple bool property assignment, this avoids triggering underlying setter logic if unchanged)
+            if self.flags.allows_duplicate_labels != other.flags.allows_duplicate_labels:
+                self.flags.allows_duplicate_labels = other.flags.allows_duplicate_labels
+
+            # Optimize _metadata intersection - avoid repeated set computation
+            # Precompute intersected metadata list once, outside loop
+            my_meta = self._metadata
+            other_meta = other._metadata
+            if my_meta and other_meta:
+                intersect_meta = set(my_meta) & set(other_meta)
+                for name in intersect_meta:
+                    assert isinstance(name, str)
+                    object.__setattr__(self, name, getattr(other, name, None))
+
+        # Optimize concat branch
 
         if method == "concat":
             objs = other.objs
-            # propagate attrs only if all concat arguments have the same attrs
-            if all(bool(obj.attrs) for obj in objs):
+            # Only check attrs consistency if some obj.attrs is non-empty
+            attrs_0 = objs[0].attrs
+            # Shortcut: first check that all are non-empty using any() and all()
+            # Note: Only run the expensive all() if attrs_0 is non-empty
+            if attrs_0 and all(obj.attrs for obj in objs):
                 # all concatenate arguments have non-empty attrs
-                attrs = objs[0].attrs
-                have_same_attrs = all(obj.attrs == attrs for obj in objs[1:])
+                have_same_attrs = True
+                for obj in objs[1:]:
+                    if obj.attrs != attrs_0:
+                        have_same_attrs = False
+                        break
                 if have_same_attrs:
-                    self.attrs = deepcopy(attrs)
+                    self.attrs = deepcopy(attrs_0)
 
-            allows_duplicate_labels = all(x.flags.allows_duplicate_labels for x in objs)
+            # Use all() only once for duplicate labels, short-circuit on first False
+            allows_duplicate_labels = True
+            for x in objs:
+                if not x.flags.allows_duplicate_labels:
+                    allows_duplicate_labels = False
+                    break
             self.flags.allows_duplicate_labels = allows_duplicate_labels
 
         return self
