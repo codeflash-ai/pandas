@@ -131,7 +131,7 @@ def ensure_np_dtype(dtype: DtypeObj) -> np.dtype:
     # Give EAs some input on what happens here. Sparse needs this.
     if isinstance(dtype, SparseDtype):
         dtype = dtype.subtype
-        dtype = cast(np.dtype, dtype)
+        dtype = cast("np.dtype", dtype)
     elif isinstance(dtype, ExtensionDtype):
         dtype = np.dtype("object")
     elif dtype == np.dtype(str):
@@ -638,15 +638,22 @@ class BaseBlockManager(PandasObject):
         Select blocks that are bool-dtype and columns from object-dtype blocks
         that are all-bool.
         """
-
+        # Check if all blocks are bool-dtype for fast path
+        all_bool_blocks = True
         new_blocks = []
 
         for blk in self.blocks:
             if blk.dtype == bool:
                 new_blocks.append(blk)
-
             elif blk.is_object:
+                all_bool_blocks = False
                 new_blocks.extend(nb for nb in blk._split() if nb.is_bool)
+            else:
+                all_bool_blocks = False
+
+        # Fast path: if all blocks are bool-dtype, return self to avoid _combine overhead
+        if all_bool_blocks:
+            return self
 
         return self._combine(new_blocks)
 
@@ -1238,7 +1245,7 @@ class BlockManager(libinternals.BlockManager, BaseBlockManager):
             #  containing (self._blknos[loc], BlockPlacement(slice(0, 1, 1)))
 
             # Check if we can use _iset_single fastpath
-            loc = cast(int, loc)
+            loc = cast("int", loc)
             blkno = self.blknos[loc]
             blk = self.blocks[blkno]
             if len(blk._mgr_locs) == 1:  # TODO: fastest way to check this?
@@ -1298,7 +1305,7 @@ class BlockManager(libinternals.BlockManager, BaseBlockManager):
                     # Defer setting the new values to enable consolidation
                     self._iset_split_block(blkno_l, blk_locs, refs=refs)
 
-        if len(removed_blknos):
+        if removed_blknos:
             # Remove blocks & update blknos accordingly
             is_deleted = np.zeros(self.nblocks, dtype=np.bool_)
             is_deleted[removed_blknos] = True
@@ -2429,7 +2436,7 @@ def _merge_blocks(
             new_values = np.vstack([b.values for b in blocks])  # type: ignore[misc]
         else:
             bvals = [blk.values for blk in blocks]
-            bvals2 = cast(Sequence[NDArrayBackedExtensionArray], bvals)
+            bvals2 = cast("Sequence[NDArrayBackedExtensionArray]", bvals)
             new_values = bvals2[0]._concat_same_type(bvals2, axis=0)
 
         argsort = np.argsort(new_mgr_locs)
@@ -2475,7 +2482,7 @@ def make_na_array(dtype: DtypeObj, shape: Shape, fill_value) -> ArrayLike:
         return DatetimeArray._simple_new(dt64values, dtype=dtype)
 
     elif is_1d_only_ea_dtype(dtype):
-        dtype = cast(ExtensionDtype, dtype)
+        dtype = cast("ExtensionDtype", dtype)
         cls = dtype.construct_array_type()
 
         missing_arr = cls._from_sequence([], dtype=dtype)
