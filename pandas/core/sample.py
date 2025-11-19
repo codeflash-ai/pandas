@@ -89,29 +89,40 @@ def process_sampling_size(
     the constant sampling size.
     """
     # If no frac or n, default to n=1.
-    if n is None and frac is None:
-        n = 1
-    elif n is not None and frac is not None:
-        raise ValueError("Please enter a value for `frac` OR `n`, not both")
-    elif n is not None:
+    if n is None:
+        if frac is None:
+            n = 1
+        else:
+            # n is None, frac is not None
+            # Instead of assert and then two checks, group value/precondition checks
+            if frac < 0:
+                raise ValueError(
+                    "A negative number of rows requested. Please provide `frac` >= 0."
+                )
+            if frac > 1 and not replace:
+                raise ValueError(
+                    "Replace has to be set to `True` when "
+                    "upsampling the population `frac` > 1."
+                )
+            return n  # which is None
+    else:
+        if frac is not None:
+            raise ValueError("Please enter a value for `frac` OR `n`, not both")
+        # n is not None, frac is None
+        # First check type (int or float), then value, avoid mod checks for ints
+        if not isinstance(n, int):
+            # Only allow int subclasses for n
+            if n % 1 != 0:
+                raise ValueError("Only integers accepted as `n` values")
+            # Accept float with integer value, but keep return value
         if n < 0:
             raise ValueError(
                 "A negative number of rows requested. Please provide `n` >= 0."
             )
-        if n % 1 != 0:
-            raise ValueError("Only integers accepted as `n` values")
-    else:
-        assert frac is not None  # for mypy
-        if frac > 1 and not replace:
-            raise ValueError(
-                "Replace has to be set to `True` when "
-                "upsampling the population `frac` > 1."
-            )
-        if frac < 0:
-            raise ValueError(
-                "A negative number of rows requested. Please provide `frac` >= 0."
-            )
+        # At this point, n is valid
+        return n
 
+    # Only reachable for n=None, frac is not None and valid; returns n=None
     return n
 
 
