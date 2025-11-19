@@ -54,28 +54,32 @@ def preprocess_weights(obj: NDFrame, weights, axis: AxisInt) -> np.ndarray:
                 "Strings cannot be passed as weights when sampling from a Series."
             )
 
-    if isinstance(obj, ABCSeries):
-        func = obj._constructor
+    # Fast path: if weights is already a np.ndarray of float64 and correct length
+    is_ndarray = isinstance(weights, np.ndarray)
+    if is_ndarray and weights.dtype == np.float64 and len(weights) == obj.shape[axis]:
+        arr = weights
     else:
-        func = obj._constructor_sliced
+        if isinstance(obj, ABCSeries):
+            func = obj._constructor
+        else:
+            func = obj._constructor_sliced
+        arr = func(weights, dtype="float64")._values
 
-    weights = func(weights, dtype="float64")._values
-
-    if len(weights) != obj.shape[axis]:
+    if len(arr) != obj.shape[axis]:
         raise ValueError("Weights and axis to be sampled must be of same length")
 
-    if lib.has_infs(weights):
+    if lib.has_infs(arr):
         raise ValueError("weight vector may not include `inf` values")
 
-    if (weights < 0).any():
+    if (arr < 0).any():
         raise ValueError("weight vector many not include negative values")
 
-    missing = np.isnan(weights)
+    missing = np.isnan(arr)
     if missing.any():
-        # Don't modify weights in place
-        weights = weights.copy()
-        weights[missing] = 0
-    return weights
+        # Don't modify arr in place
+        arr = arr.copy()
+        arr[missing] = 0
+    return arr
 
 
 def process_sampling_size(
