@@ -2123,8 +2123,11 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         Not a real Jupyter special repr method, but we use the same
         naming convention.
         """
-        if config.get_option("display.html.table_schema"):
-            data = self.head(config.get_option("display.max_rows"))
+        # Cache options to minimize redundant lookups
+        html_schema = config.get_option("display.html.table_schema")
+        if html_schema:
+            max_rows = config.get_option("display.max_rows")
+            data = self.head(max_rows)
 
             as_json = data.to_json(orient="table")
             as_json = cast(str, as_json)
