@@ -7109,7 +7109,11 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         else:
             return result.__finalize__(self, method="fillna")
 
-    @overload
+    @final
+    @doc(
+        klass=_shared_doc_kwargs["klass"],
+        axes_single_arg=_shared_doc_kwargs["axes_single_arg"],
+    )
     def ffill(
         self,
         *,
@@ -7117,9 +7121,103 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         inplace: Literal[False] = ...,
         limit: None | int = ...,
         limit_area: Literal["inside", "outside"] | None = ...,
-    ) -> Self: ...
+    ) -> Self:
+        """
+        Fill NA/NaN values by propagating the last valid observation to next valid.
 
-    @overload
+        Parameters
+        ----------
+        axis : {axes_single_arg}
+            Axis along which to fill missing values. For `Series`
+            this parameter is unused and defaults to 0.
+        inplace : bool, default False
+            If True, fill in-place. Note: this will modify any
+            other views on this object (e.g., a no-copy slice for a column in a
+            DataFrame).
+        limit : int, default None
+            If method is specified, this is the maximum number of consecutive
+            NaN values to forward/backward fill. In other words, if there is
+            a gap with more than this number of consecutive NaNs, it will only
+            be partially filled. If method is not specified, this is the
+            maximum number of entries along the entire axis where NaNs will be
+            filled. Must be greater than 0 if not None.
+        limit_area : {{`None`, 'inside', 'outside'}}, default None
+            If limit is specified, consecutive NaNs will be filled with this
+            restriction.
+
+            * ``None``: No fill restriction.
+            * 'inside': Only fill NaNs surrounded by valid values
+              (interpolate).
+            * 'outside': Only fill NaNs outside valid values (extrapolate).
+
+            .. versionadded:: 2.2.0
+
+        Returns
+        -------
+        {klass} or None
+            Object with missing values filled or None if ``inplace=True``.
+
+        See Also
+        --------
+        DataFrame.bfill : Fill NA/NaN values by using the next valid observation
+            to fill the gap.
+
+        Examples
+        --------
+        >>> df = pd.DataFrame(
+        ...     [
+        ...         [np.nan, 2, np.nan, 0],
+        ...         [3, 4, np.nan, 1],
+        ...         [np.nan, np.nan, np.nan, np.nan],
+        ...         [np.nan, 3, np.nan, 4],
+        ...     ],
+        ...     columns=list("ABCD"),
+        ... )
+        >>> df
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  NaN  NaN NaN  NaN
+        3  NaN  3.0 NaN  4.0
+
+        >>> df.ffill()
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  3.0  4.0 NaN  1.0
+        3  3.0  3.0 NaN  4.0
+
+        >>> ser = pd.Series([1, np.nan, 2, 3])
+        >>> ser.ffill()
+        0   1.0
+        1   1.0
+        2   2.0
+        3   3.0
+        dtype: float64
+        """
+        inplace = validate_bool_kwarg(inplace, "inplace")
+        if inplace:
+            if not PYPY:
+                if sys.getrefcount(self) <= REF_COUNT:
+                    warnings.warn(
+                        _chained_assignment_method_msg,
+                        ChainedAssignmentError,
+                        stacklevel=2,
+                    )
+
+        return self._pad_or_backfill(
+            "ffill",
+            axis=axis,
+            inplace=inplace,
+            limit=limit,
+            limit_area=limit_area,
+        )
+
+    @final
+    @doc(
+        klass=_shared_doc_kwargs["klass"],
+        axes_single_arg=_shared_doc_kwargs["axes_single_arg"],
+    )
     def ffill(
         self,
         *,
@@ -7127,9 +7225,103 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         inplace: Literal[True],
         limit: None | int = ...,
         limit_area: Literal["inside", "outside"] | None = ...,
-    ) -> None: ...
+    ) -> None:
+        """
+        Fill NA/NaN values by propagating the last valid observation to next valid.
 
-    @overload
+        Parameters
+        ----------
+        axis : {axes_single_arg}
+            Axis along which to fill missing values. For `Series`
+            this parameter is unused and defaults to 0.
+        inplace : bool, default False
+            If True, fill in-place. Note: this will modify any
+            other views on this object (e.g., a no-copy slice for a column in a
+            DataFrame).
+        limit : int, default None
+            If method is specified, this is the maximum number of consecutive
+            NaN values to forward/backward fill. In other words, if there is
+            a gap with more than this number of consecutive NaNs, it will only
+            be partially filled. If method is not specified, this is the
+            maximum number of entries along the entire axis where NaNs will be
+            filled. Must be greater than 0 if not None.
+        limit_area : {{`None`, 'inside', 'outside'}}, default None
+            If limit is specified, consecutive NaNs will be filled with this
+            restriction.
+
+            * ``None``: No fill restriction.
+            * 'inside': Only fill NaNs surrounded by valid values
+              (interpolate).
+            * 'outside': Only fill NaNs outside valid values (extrapolate).
+
+            .. versionadded:: 2.2.0
+
+        Returns
+        -------
+        {klass} or None
+            Object with missing values filled or None if ``inplace=True``.
+
+        See Also
+        --------
+        DataFrame.bfill : Fill NA/NaN values by using the next valid observation
+            to fill the gap.
+
+        Examples
+        --------
+        >>> df = pd.DataFrame(
+        ...     [
+        ...         [np.nan, 2, np.nan, 0],
+        ...         [3, 4, np.nan, 1],
+        ...         [np.nan, np.nan, np.nan, np.nan],
+        ...         [np.nan, 3, np.nan, 4],
+        ...     ],
+        ...     columns=list("ABCD"),
+        ... )
+        >>> df
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  NaN  NaN NaN  NaN
+        3  NaN  3.0 NaN  4.0
+
+        >>> df.ffill()
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  3.0  4.0 NaN  1.0
+        3  3.0  3.0 NaN  4.0
+
+        >>> ser = pd.Series([1, np.nan, 2, 3])
+        >>> ser.ffill()
+        0   1.0
+        1   1.0
+        2   2.0
+        3   3.0
+        dtype: float64
+        """
+        inplace = validate_bool_kwarg(inplace, "inplace")
+        if inplace:
+            if not PYPY:
+                if sys.getrefcount(self) <= REF_COUNT:
+                    warnings.warn(
+                        _chained_assignment_method_msg,
+                        ChainedAssignmentError,
+                        stacklevel=2,
+                    )
+
+        return self._pad_or_backfill(
+            "ffill",
+            axis=axis,
+            inplace=inplace,
+            limit=limit,
+            limit_area=limit_area,
+        )
+
+    @final
+    @doc(
+        klass=_shared_doc_kwargs["klass"],
+        axes_single_arg=_shared_doc_kwargs["axes_single_arg"],
+    )
     def ffill(
         self,
         *,
@@ -7137,7 +7329,97 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         inplace: bool = ...,
         limit: None | int = ...,
         limit_area: Literal["inside", "outside"] | None = ...,
-    ) -> Self | None: ...
+    ) -> Self | None:
+        """
+        Fill NA/NaN values by propagating the last valid observation to next valid.
+
+        Parameters
+        ----------
+        axis : {axes_single_arg}
+            Axis along which to fill missing values. For `Series`
+            this parameter is unused and defaults to 0.
+        inplace : bool, default False
+            If True, fill in-place. Note: this will modify any
+            other views on this object (e.g., a no-copy slice for a column in a
+            DataFrame).
+        limit : int, default None
+            If method is specified, this is the maximum number of consecutive
+            NaN values to forward/backward fill. In other words, if there is
+            a gap with more than this number of consecutive NaNs, it will only
+            be partially filled. If method is not specified, this is the
+            maximum number of entries along the entire axis where NaNs will be
+            filled. Must be greater than 0 if not None.
+        limit_area : {{`None`, 'inside', 'outside'}}, default None
+            If limit is specified, consecutive NaNs will be filled with this
+            restriction.
+
+            * ``None``: No fill restriction.
+            * 'inside': Only fill NaNs surrounded by valid values
+              (interpolate).
+            * 'outside': Only fill NaNs outside valid values (extrapolate).
+
+            .. versionadded:: 2.2.0
+
+        Returns
+        -------
+        {klass} or None
+            Object with missing values filled or None if ``inplace=True``.
+
+        See Also
+        --------
+        DataFrame.bfill : Fill NA/NaN values by using the next valid observation
+            to fill the gap.
+
+        Examples
+        --------
+        >>> df = pd.DataFrame(
+        ...     [
+        ...         [np.nan, 2, np.nan, 0],
+        ...         [3, 4, np.nan, 1],
+        ...         [np.nan, np.nan, np.nan, np.nan],
+        ...         [np.nan, 3, np.nan, 4],
+        ...     ],
+        ...     columns=list("ABCD"),
+        ... )
+        >>> df
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  NaN  NaN NaN  NaN
+        3  NaN  3.0 NaN  4.0
+
+        >>> df.ffill()
+             A    B   C    D
+        0  NaN  2.0 NaN  0.0
+        1  3.0  4.0 NaN  1.0
+        2  3.0  4.0 NaN  1.0
+        3  3.0  3.0 NaN  4.0
+
+        >>> ser = pd.Series([1, np.nan, 2, 3])
+        >>> ser.ffill()
+        0   1.0
+        1   1.0
+        2   2.0
+        3   3.0
+        dtype: float64
+        """
+        inplace = validate_bool_kwarg(inplace, "inplace")
+        if inplace:
+            if not PYPY:
+                if sys.getrefcount(self) <= REF_COUNT:
+                    warnings.warn(
+                        _chained_assignment_method_msg,
+                        ChainedAssignmentError,
+                        stacklevel=2,
+                    )
+
+        return self._pad_or_backfill(
+            "ffill",
+            axis=axis,
+            inplace=inplace,
+            limit=limit,
+            limit_area=limit_area,
+        )
 
     @final
     @doc(
