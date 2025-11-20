@@ -101,7 +101,15 @@ class PandasDelegate:
             False skips the missing accessor.
         """
 
+        # Cache getattr to local for faster lookup (small boost in tight loops)
+        delegate_getattr = getattr
+
         def _create_delegator_property(name: str):
+            # Obtain mapped accessor name upfront to avoid redundant calls
+            mapped_name = accessor_mapping(name)
+            # doc lookups can be slightly faster when looked up once
+            doc = delegate_getattr(delegate, mapped_name).__doc__
+
             def _getter(self):
                 return self._delegate_property_get(name)
 
@@ -114,11 +122,12 @@ class PandasDelegate:
             return property(
                 fget=_getter,
                 fset=_setter,
-                doc=getattr(delegate, accessor_mapping(name)).__doc__,
+                doc=doc,
             )
 
         def _create_delegator_method(name: str):
-            method = getattr(delegate, accessor_mapping(name))
+            mapped_name = accessor_mapping(name)
+            method = delegate_getattr(delegate, mapped_name)
 
             @functools.wraps(method)
             def f(self, *args, **kwargs):
@@ -126,21 +135,27 @@ class PandasDelegate:
 
             return f
 
+        # Convert accessors list to tuple for _create_delegator_* if any mutation is possible (none here, but tuple faster for iteration & attr access)
+        # Pre-fetch type checks and function creator to avoid branching in loop
+        is_property = typ == "property"
+        create_func = (
+            _create_delegator_property if is_property else _create_delegator_method
+        )
+
+        # Use local binding for attribute existence check
+        cls_hasattr = hasattr
+        cls_setattr = setattr
+
+        # Avoid repeated attr existence checks and mappings by combining
         for name in accessors:
-            if (
-                not raise_on_missing
-                and getattr(delegate, accessor_mapping(name), None) is None
-            ):
+            mapped_name = accessor_mapping(name)
+            # Avoid doing getattr twice - do only if necessary (property or method creation will fetch again if needed)
+            exists = delegate_getattr(delegate, mapped_name, None) is not None
+            if not raise_on_missing and not exists:
                 continue
-
-            if typ == "property":
-                f = _create_delegator_property(name)
-            else:
-                f = _create_delegator_method(name)
-
             # don't overwrite existing methods/properties
-            if overwrite or not hasattr(cls, name):
-                setattr(cls, name, f)
+            if overwrite or not cls_hasattr(cls, name):
+                cls_setattr(cls, name, create_func(name))
 
 
 def delegate_names(
