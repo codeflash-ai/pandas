@@ -281,8 +281,13 @@ def _register_accessor(
     {examples}
     """
 
+    # Cache method/attr lookups outside the decorator closure for speed
+    cls_hasattr = hasattr
+    cls_setattr = setattr
+    cls_accessors = cls._accessors
+
     def decorator(accessor: TypeT) -> TypeT:
-        if hasattr(cls, name):
+        if cls_hasattr(cls, name):
             warnings.warn(
                 f"registration of accessor {accessor!r} under name "
                 f"{name!r} for type {cls!r} is overriding a preexisting "
@@ -290,8 +295,8 @@ def _register_accessor(
                 UserWarning,
                 stacklevel=find_stack_level(),
             )
-        setattr(cls, name, Accessor(name, accessor))
-        cls._accessors.add(name)
+        cls_setattr(cls, name, Accessor(name, accessor))
+        cls_accessors.add(name)
         return accessor
 
     return decorator
@@ -325,9 +330,17 @@ dtype: int64"""
 
 @doc(_register_accessor, klass="DataFrame", examples=_register_df_examples)
 def register_dataframe_accessor(name: str) -> Callable[[TypeT], TypeT]:
-    from pandas import DataFrame
+    # Avoid repeated import for performance; import once and cache at module level
+    # Only do the import the first time the function is called.
+    # Uses a function attribute as cache, this avoids global pollution and keeps thread-safe (under GIL).
+    try:
+        DataFrame = register_dataframe_accessor._cached_df
+    except AttributeError:
+        from pandas import DataFrame
 
-    return _register_accessor(name, DataFrame)
+        register_dataframe_accessor._cached_df = DataFrame
+
+    return _register_accessor(name, register_dataframe_accessor._cached_df)
 
 
 _register_series_examples = """
