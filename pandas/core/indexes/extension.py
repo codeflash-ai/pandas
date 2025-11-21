@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     from pandas.core.arrays import IntervalArray
     from pandas.core.arrays._mixins import NDArrayBackedExtensionArray
 
+_signature_cache = {}
+
 _ExtensionIndexT = TypeVar("_ExtensionIndexT", bound="ExtensionIndex")
 
 
@@ -107,7 +109,12 @@ def _inherit_from_data(
         # error: "property" has no attribute "__name__"
         method.__name__ = name  # type: ignore[attr-defined]
         method.__doc__ = attr.__doc__
-        method.__signature__ = signature(attr)  # type: ignore[attr-defined]
+
+        # Cache expensive signature calls
+        attr_id = id(attr)
+        if attr_id not in _signature_cache:
+            _signature_cache[attr_id] = signature(attr)
+        method.__signature__ = _signature_cache[attr_id]  # type: ignore[attr-defined]
     return method
 
 
