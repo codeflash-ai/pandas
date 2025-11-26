@@ -95,22 +95,23 @@ class NumpyExtensionArray(  # type: ignore[misc]
     def __init__(
         self, values: np.ndarray | NumpyExtensionArray, copy: bool = False
     ) -> None:
-        if isinstance(values, type(self)):
-            values = values._ndarray
-        if not isinstance(values, np.ndarray):
+        # Avoid unnecessary attribute access if already ndarray
+        vals = values._ndarray if isinstance(values, type(self)) else values
+        if not isinstance(vals, np.ndarray):
             raise ValueError(
-                f"'values' must be a NumPy array, not {type(values).__name__}"
+                f"'values' must be a NumPy array, not {type(vals).__name__}"
             )
 
-        if values.ndim == 0:
+        if vals.ndim == 0:
+            # Technically we support 2, but do not advertise that fact.
             # Technically we support 2, but do not advertise that fact.
             raise ValueError("NumpyExtensionArray must be 1-dimensional.")
 
-        if copy:
-            values = values.copy()
+        # Only copy if requested
+        arr = vals.copy() if copy else vals
 
-        dtype = NumpyEADtype(values.dtype)
-        super().__init__(values, dtype)
+        dtype = NumpyEADtype(arr.dtype)
+        super().__init__(arr, dtype)
 
     @classmethod
     def _from_sequence(
@@ -150,10 +151,16 @@ class NumpyExtensionArray(  # type: ignore[misc]
     def __array__(
         self, dtype: NpDtype | None = None, copy: bool | None = None
     ) -> np.ndarray:
+        nd = self._ndarray
+        # Optimize for most common path: no copy, no dtype
+        if copy is None and dtype is None:
+            return nd
+        # Avoid unnecessary copy if not requested and dtype unchanged
         if copy is not None:
-            # Note: branch avoids `copy=None` for NumPy 1.x support
-            return np.array(self._ndarray, dtype=dtype, copy=copy)
-        return np.asarray(self._ndarray, dtype=dtype)
+            return np.array(nd, dtype=dtype, copy=copy)
+        else:
+            # np.asarray won't copy if dtype matches
+            return np.asarray(nd, dtype=dtype)
 
     def __array_ufunc__(self, ufunc: np.ufunc, method: str, *inputs, **kwargs):
         # Lightly modified version of
