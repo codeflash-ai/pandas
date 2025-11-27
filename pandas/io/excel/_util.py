@@ -89,10 +89,11 @@ def get_default_engine(ext: str, mode: Literal["reader", "writer"] = "reader") -
 
 
 def get_writer(engine_name: str) -> ExcelWriter_t:
-    try:
+    # Hot path optimization: Avoid try/except by checking before access
+    # This prevents the more expensive stack operations associated with exceptions
+    if engine_name in _writers:
         return _writers[engine_name]
-    except KeyError as err:
-        raise ValueError(f"No Excel writer '{engine_name}'") from err
+    raise ValueError(f"No Excel writer '{engine_name}'")
 
 
 def _excel2num(x: str) -> int:
