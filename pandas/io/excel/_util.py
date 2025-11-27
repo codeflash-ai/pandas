@@ -114,15 +114,23 @@ def _excel2num(x: str) -> int:
     ValueError
         Part of the Excel column name was invalid.
     """
+    s = x.upper().strip()
+    if not s:
+        return -1
+
+    # Precompute ord('A') for reuse
+    ord_A = ord("A")
+    ord_Z = ord("Z")
     index = 0
 
-    for c in x.upper().strip():
-        cp = ord(c)
-
-        if cp < ord("A") or cp > ord("Z"):
+    # Avoid redundant ord() and bounds checking in loop
+    for c in s:
+        # Fast ASCII check for latin uppercase A-Z without ord()
+        # CPython str is ASCII-compatible; this avoids one call to ord()
+        if not ("A" <= c <= "Z"):
             raise ValueError(f"Invalid column name: {x}")
-
-        index = index * 26 + cp - ord("A") + 1
+        # Compute separately to avoid repeated calls to ord('A')
+        index = index * 26 + (ord(c) - ord_A + 1)
 
     return index - 1
 
