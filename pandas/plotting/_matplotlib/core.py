@@ -98,6 +98,8 @@ if TYPE_CHECKING:
         Series,
     )
 
+_BASE_COLORS_SET = set(mpl.colors.BASE_COLORS)
+
 
 def holds_integer(column: Index) -> bool:
     return column.inferred_type in {"integer", "mixed-integer"}
@@ -107,7 +109,7 @@ def _color_in_style(style: str) -> bool:
     """
     Check if there is a color letter in the style string.
     """
-    return not set(mpl.colors.BASE_COLORS).isdisjoint(style)
+    return not _BASE_COLORS_SET.isdisjoint(style)
 
 
 class MPLPlot(ABC):
@@ -600,7 +602,7 @@ class MPLPlot(ABC):
         elif self.logy == "sym" or self.loglog == "sym":
             [a.set_yscale("symlog") for a in axes]
 
-        axes_seq = cast(Sequence["Axes"], axes)
+        axes_seq = cast("Sequence[Axes]", axes)
         return axes_seq, fig
 
     @property
