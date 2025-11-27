@@ -29,7 +29,6 @@ from pandas.util._exceptions import find_stack_level
 
 from pandas.core.dtypes.common import (
     is_any_real_numeric_dtype,
-    is_bool,
     is_float,
     is_float_dtype,
     is_hashable,
@@ -187,14 +186,15 @@ class MPLPlot(ABC):
             if column:
                 self.columns = com.maybe_make_list(column)
             elif self.by is None:
-                self.columns = [
-                    col for col in data.columns if is_numeric_dtype(data[col])
-                ]
+                cols = data.columns
+                self.columns = [col for col in cols if is_numeric_dtype(data[col])]
             else:
+                cols = data.columns
+                by_set = set(self.by)
                 self.columns = [
                     col
-                    for col in data.columns
-                    if col not in self.by and is_numeric_dtype(data[col])
+                    for col in cols
+                    if col not in by_set and is_numeric_dtype(data[col])
                 ]
 
         # For `hist` plot, need to get grouped original data before `self.data` is
@@ -291,17 +291,17 @@ class MPLPlot(ABC):
     @final
     @staticmethod
     def _validate_sharex(sharex: bool | None, ax, by) -> bool:
+        if sharex is True:
+            return True
+        if sharex is False:
+            return False
         if sharex is None:
             # if by is defined, subplots are used and sharex should be False
             if ax is None and by is None:
-                sharex = True
+                return True
             else:
-                # if we get an axis, the users should do the visibility
-                # setting...
-                sharex = False
-        elif not is_bool(sharex):
-            raise TypeError("sharex must be a bool or None")
-        return bool(sharex)
+                return False
+        raise TypeError("sharex must be a bool or None")
 
     @classmethod
     def _validate_log_kwd(
@@ -600,7 +600,7 @@ class MPLPlot(ABC):
         elif self.logy == "sym" or self.loglog == "sym":
             [a.set_yscale("symlog") for a in axes]
 
-        axes_seq = cast(Sequence["Axes"], axes)
+        axes_seq = cast("Sequence[Axes]", axes)
         return axes_seq, fig
 
     @property
