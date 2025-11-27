@@ -600,7 +600,7 @@ class MPLPlot(ABC):
         elif self.logy == "sym" or self.loglog == "sym":
             [a.set_yscale("symlog") for a in axes]
 
-        axes_seq = cast(Sequence["Axes"], axes)
+        axes_seq = cast("Sequence[Axes]", axes)
         return axes_seq, fig
 
     @property
@@ -1119,30 +1119,24 @@ class MPLPlot(ABC):
         if err is None:
             return None, data
 
-        def match_labels(data, e):
-            e = e.reindex(data.index)
-            return e
-
         # key-matched DataFrame
         if isinstance(err, ABCDataFrame):
-            err = match_labels(data, err)
+            err = MPLPlot._match_labels(data, err)
         # key-matched dict
         elif isinstance(err, dict):
             pass
 
         # Series of error values
         elif isinstance(err, ABCSeries):
-            # broadcast error series across data
-            err = match_labels(data, err)
-            err = np.atleast_2d(err)
-            err = np.tile(err, (nseries, 1))
+            # broadcast error series across data to tile shape
+            err = MPLPlot._match_labels(data, err)
+            err = np.tile(np.atleast_2d(err), (nseries, 1))
 
         # errors are a column in the dataframe
         elif isinstance(err, str):
             evalues = data[err].values
             data = data[data.columns.drop(err)]
-            err = np.atleast_2d(evalues)
-            err = np.tile(err, (nseries, 1))
+            err = np.tile(np.atleast_2d(evalues), (nseries, 1))
 
         elif is_list_like(err):
             if is_iterator(err):
@@ -1153,8 +1147,10 @@ class MPLPlot(ABC):
 
             err_shape = err.shape
 
-            # asymmetrical error bars
-            if isinstance(data, ABCSeries) and err_shape[0] == 2:
+            # Optimize: Avoid repeated isinstance on each path, check once and use cached value
+            is_series = isinstance(data, ABCSeries)
+            is_df = isinstance(data, ABCDataFrame)
+            if is_series and err_shape[0] == 2:
                 err = np.expand_dims(err, 0)
                 err_shape = err.shape
                 if err_shape[2] != len(data):
@@ -1162,7 +1158,7 @@ class MPLPlot(ABC):
                         "Asymmetrical error bars should be provided "
                         f"with the shape (2, {len(data)})"
                     )
-            elif isinstance(data, ABCDataFrame) and err.ndim == 3:
+            elif is_df and err.ndim == 3:
                 if (
                     (err_shape[0] != nseries)
                     or (err_shape[1] != 2)
@@ -1172,16 +1168,13 @@ class MPLPlot(ABC):
                         "Asymmetrical error bars should be provided "
                         f"with the shape ({nseries}, 2, {len(data)})"
                     )
-
-            # broadcast errors to each data series
-            if len(err) == 1:
+            # Fast-path: avoid tiled copy if shape is already correct
+            if len(err) == 1 and (nseries != 1 or err.shape[0] != nseries):
                 err = np.tile(err, (nseries, 1))
 
         elif is_number(err):
-            err = np.tile(
-                [err],
-                (nseries, len(data)),
-            )
+            # Performance: avoid intermediate [err], use np.full directly
+            err = np.full((nseries, len(data)), err)
 
         else:
             msg = f"No valid {label} detected"
@@ -1235,6 +1228,13 @@ class MPLPlot(ABC):
             x_set.add(points[0][0])
             y_set.add(points[0][1])
         return (len(y_set), len(x_set))
+
+    # TODO: tighter typing for first return?
+
+    @staticmethod
+    def _match_labels(data, e):
+        # Helper moved out of hot function to avoid closure creation
+        return e.reindex(data.index)
 
 
 class PlanePlot(MPLPlot, ABC):
