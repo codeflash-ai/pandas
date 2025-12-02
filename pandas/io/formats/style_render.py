@@ -71,7 +71,11 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+
+    loader = jinja2.FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates")
+    )
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -834,10 +838,7 @@ class StylerRenderer:
 
             data_element = _element(
                 "td",
-                (
-                    f"{self.css['data']} {self.css['row']}{r} "
-                    f"{self.css['col']}{c}{cls}"
-                ),
+                (f"{self.css['data']} {self.css['row']}{r} {self.css['col']}{c}{cls}"),
                 value,
                 data_element_visible,
                 attributes="",
@@ -956,7 +957,7 @@ class StylerRenderer:
                     idx_len = d["index_lengths"].get((lvl, r), None)
                     if idx_len is not None:  # i.e. not a sparsified entry
                         d["clines"][rn + idx_len].append(
-                            f"\\cline{{{lvln+1}-{len(visible_index_levels)+data_len}}}"
+                            f"\\cline{{{lvln + 1}-{len(visible_index_levels) + data_len}}}"
                         )
 
     def format(
@@ -1211,7 +1212,7 @@ class StylerRenderer:
         data = self.data.loc[subset]
 
         if not isinstance(formatter, dict):
-            formatter = {col: formatter for col in data.columns}
+            formatter = dict.fromkeys(data.columns, formatter)
 
         cis = self.columns.get_indexer_for(data.columns)
         ris = self.index.get_indexer_for(data.index)
@@ -1397,7 +1398,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1540,7 +1541,7 @@ class StylerRenderer:
 
         >>> df = pd.DataFrame({"samples": np.random.rand(10)})
         >>> styler = df.loc[np.random.randint(0, 10, 3)].style
-        >>> styler.relabel_index([f"sample{i+1} ({{}})" for i in range(3)])
+        >>> styler.relabel_index([f"sample{i + 1} ({{}})" for i in range(3)])
         ... # doctest: +SKIP
                          samples
         sample1 (5)     0.315811
@@ -1694,7 +1695,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1814,26 +1815,30 @@ def _get_level_lengths(
         levels = index._format_flat(include_name=False)
 
     if hidden_elements is None:
-        hidden_elements = []
+        hidden_elements_set = set()
+    else:
+        hidden_elements_set = set(hidden_elements)
 
     lengths = {}
     if not isinstance(index, MultiIndex):
         for i, value in enumerate(levels):
-            if i not in hidden_elements:
+            if i not in hidden_elements_set:
                 lengths[(0, i)] = 1
         return lengths
 
     for i, lvl in enumerate(levels):
         visible_row_count = 0  # used to break loop due to display trimming
+        last_label = None
         for j, row in enumerate(lvl):
             if visible_row_count > max_index:
                 break
             if not sparsify:
                 # then lengths will always equal 1 since no aggregation.
-                if j not in hidden_elements:
+                if j not in hidden_elements_set:
                     lengths[(i, j)] = 1
                     visible_row_count += 1
-            elif (row is not lib.no_default) and (j not in hidden_elements):
+            elif (row is not lib.no_default) and (j not in hidden_elements_set):
+                # this element has not been sparsified so must be the start of section
                 # this element has not been sparsified so must be the start of section
                 last_label = j
                 lengths[(i, last_label)] = 1
@@ -1843,12 +1848,15 @@ def _get_level_lengths(
                 # later elements are visible
                 last_label = j
                 lengths[(i, last_label)] = 0
-            elif j not in hidden_elements:
+            elif j not in hidden_elements_set:
+                # then element must be part of sparsified section and is visible
                 # then element must be part of sparsified section and is visible
                 visible_row_count += 1
                 if visible_row_count > max_index:
                     break  # do not add a length since the render trim limit reached
-                if lengths[(i, last_label)] == 0:
+                # Use get to check if lengths exists and is 0; avoid KeyError
+                if lengths.get((i, last_label), None) == 0:
+                    # if previous iteration was first-of-section but hidden then offset
                     # if previous iteration was first-of-section but hidden then offset
                     last_label = j
                     lengths[(i, last_label)] = 1
@@ -2503,7 +2511,7 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         if value[0] == "#" and len(value) == 7:  # color is hex code
             return command, f"[HTML]{{{value[1:].upper()}}}{arg}"
         if value[0] == "#" and len(value) == 4:  # color is short hex code
-            val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
+            val = f"{value[1].upper() * 2}{value[2].upper() * 2}{value[3].upper() * 2}"
             return command, f"[HTML]{{{val}}}{arg}"
         elif value[:3] == "rgb":  # color is rgb or rgba
             r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
