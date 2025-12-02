@@ -52,7 +52,7 @@ def rpow(left, right):
 
 
 def rand_(left, right):
-    return operator.and_(right, left)
+    return right & left
 
 
 def ror_(left, right):
