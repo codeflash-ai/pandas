@@ -62,7 +62,7 @@ class CSSDict(TypedDict):
     props: CSSProperties
 
 
-CSSStyles = list[CSSDict]
+CSSStyles = list[dict]
 Subset = Union[slice, Sequence, Index]
 
 
@@ -71,7 +71,11 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+
+    loader = jinja2.FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates")
+    )
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -703,24 +707,46 @@ class StylerRenderer:
         -------
         list of elements
         """
-        index_headers = [
-            _element(
-                "th",
-                (
-                    f"{self.css['row_heading']} {self.css['level']}{c} "
-                    f"{self.css['row_trim']}"
-                ),
-                "...",
-                not self.hide_index_[c],
-                attributes="",
-            )
-            for c in range(self.data.index.nlevels)
-        ]
+        # Micro-optimization: Pre-fetch frequently accessed variables and methods.
+        data_index_nlevels = self.data.index.nlevels
+        index_headers_append = []
+        css = self.css
+        hide_index_ = self.hide_index_
 
-        data: list = []
-        visible_col_count: int = 0
-        for c, _ in enumerate(self.columns):
-            data_element_visible = c not in self.hidden_columns
+        # Use list comprehension with local-binding for speed.
+        idx_css = f"{css['row_heading']} {css['level']}"
+        row_trim = css["row_trim"]
+
+        # Pre-build the repeated str used in headers.
+        for c in range(data_index_nlevels):
+            index_headers_append.append(
+                {
+                    "type": "th",
+                    "value": "...",
+                    "class": f"{idx_css}{c} {row_trim}",
+                    "is_visible": not hide_index_[c],
+                    "attributes": "",
+                    "display_value": "...",
+                }
+            )
+        index_headers = index_headers_append
+
+        columns = self.columns
+        hidden_columns_set = set(self.hidden_columns) if self.hidden_columns else ()
+        col_len = len(columns)
+        data = []
+        visible_col_count = 0
+
+        # Minor micro-optimizations:
+        # - Use direct enumerate loop with local var assignment.
+        # - Combine control path checks and append logic for less per-iteration overhead.
+        # - Cache formatting strings.
+
+        data_css = css["data"]
+        row_trim_val = row_trim
+        col_trim_val = css["col_trim"]
+        for c in range(col_len):
+            data_element_visible = c not in hidden_columns_set
             if data_element_visible:
                 visible_col_count += 1
             if self._check_trim(
@@ -728,18 +754,19 @@ class StylerRenderer:
                 max_cols,
                 data,
                 "td",
-                f"{self.css['data']} {self.css['row_trim']} {self.css['col_trim']}",
+                f"{data_css} {row_trim_val} {col_trim_val}",
             ):
                 break
 
             data.append(
-                _element(
-                    "td",
-                    f"{self.css['data']} {self.css['col']}{c} {self.css['row_trim']}",
-                    "...",
-                    data_element_visible,
-                    attributes="",
-                )
+                {
+                    "type": "td",
+                    "value": "...",
+                    "class": f"{data_css} {css['col']}{c} {row_trim_val}",
+                    "is_visible": data_element_visible,
+                    "attributes": "",
+                    "display_value": "...",
+                }
             )
 
         return index_headers + data
@@ -834,10 +861,7 @@ class StylerRenderer:
 
             data_element = _element(
                 "td",
-                (
-                    f"{self.css['data']} {self.css['row']}{r} "
-                    f"{self.css['col']}{c}{cls}"
-                ),
+                (f"{self.css['data']} {self.css['row']}{r} {self.css['col']}{c}{cls}"),
                 value,
                 data_element_visible,
                 attributes="",
@@ -956,7 +980,7 @@ class StylerRenderer:
                     idx_len = d["index_lengths"].get((lvl, r), None)
                     if idx_len is not None:  # i.e. not a sparsified entry
                         d["clines"][rn + idx_len].append(
-                            f"\\cline{{{lvln+1}-{len(visible_index_levels)+data_len}}}"
+                            f"\\cline{{{lvln + 1}-{len(visible_index_levels) + data_len}}}"
                         )
 
     def format(
@@ -1211,7 +1235,7 @@ class StylerRenderer:
         data = self.data.loc[subset]
 
         if not isinstance(formatter, dict):
-            formatter = {col: formatter for col in data.columns}
+            formatter = dict.fromkeys(data.columns, formatter)
 
         cis = self.columns.get_indexer_for(data.columns)
         ris = self.index.get_indexer_for(data.index)
@@ -1397,7 +1421,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1540,7 +1564,7 @@ class StylerRenderer:
 
         >>> df = pd.DataFrame({"samples": np.random.rand(10)})
         >>> styler = df.loc[np.random.randint(0, 10, 3)].style
-        >>> styler.relabel_index([f"sample{i+1} ({{}})" for i in range(3)])
+        >>> styler.relabel_index([f"sample{i + 1} ({{}})" for i in range(3)])
         ... # doctest: +SKIP
                          samples
         sample1 (5)     0.315811
@@ -1694,7 +1718,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -2503,7 +2527,7 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         if value[0] == "#" and len(value) == 7:  # color is hex code
             return command, f"[HTML]{{{value[1:].upper()}}}{arg}"
         if value[0] == "#" and len(value) == 4:  # color is short hex code
-            val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
+            val = f"{value[1].upper() * 2}{value[2].upper() * 2}{value[3].upper() * 2}"
             return command, f"[HTML]{{{val}}}{arg}"
         elif value[:3] == "rgb":  # color is rgb or rgba
             r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
