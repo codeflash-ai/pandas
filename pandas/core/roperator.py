@@ -56,7 +56,7 @@ def rand_(left, right):
 
 
 def ror_(left, right):
-    return operator.or_(right, left)
+    return right | left
 
 
 def rxor(left, right):
