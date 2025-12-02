@@ -177,6 +177,26 @@ def get_option(pat: str) -> Any:
     >>> pd.get_option("display.max_columns")  # doctest: +SKIP
     4
     """
+    # Common path: no regex or fuzzy matching needed, key is a direct option
+    # Optimize for the likely case: direct hit in _global_config or nested dict
+    if "." not in pat:
+        # Fast path, no nesting
+        conf = _global_config
+        if pat in conf:
+            return conf[pat]
+    # Some keys are nested (e.g., "display.max_columns")
+    else:
+        cursor = _global_config
+        parts = pat.split(".")
+        try:
+            for p in parts[:-1]:
+                cursor = cursor[p]
+            return cursor[parts[-1]]
+        except (KeyError, TypeError):
+            pass
+
+    # Fallback for patterns, partials, warnings, and error handling
+    # (Out-of-band: don't inline _get_single_key/_get_root to keep optimal logic above)
     key = _get_single_key(pat)
 
     # walk the nested dict
@@ -504,6 +524,8 @@ def register_option(
     import keyword
     import tokenize
 
+    _deprecated_options: dict[str, DeprecatedOption] = {}
+
     key = key.lower()
 
     if key in _registered_options:
@@ -756,7 +778,7 @@ def config_prefix(prefix: str) -> Generator[None]:
             pkey = f"{prefix}.{key}"
             return func(pkey, *args, **kwds)
 
-        return cast(F, inner)
+        return cast("F", inner)
 
     _register_option = register_option
     _get_option = get_option
