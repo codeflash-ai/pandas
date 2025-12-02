@@ -257,14 +257,19 @@ class SelectionMixin(Generic[NDFrameT]):
         Infer the `selection` to pass to our constructor in _gotitem.
         """
         # Shared by Rolling and Resample
-        selection = None
-        if subset.ndim == 2 and (
-            (lib.is_scalar(key) and key in subset) or lib.is_list_like(key)
-        ):
-            selection = key
-        elif subset.ndim == 1 and lib.is_scalar(key) and key == subset.name:
-            selection = key
-        return selection
+
+        # Avoid repeated calls to lib.is_scalar
+        is_scalar = lib.is_scalar(key)
+        if subset.ndim == 2:
+            if is_scalar:
+                # Check key in subset only if necessary
+                if key in subset:
+                    return key
+            elif lib.is_list_like(key):
+                return key
+        elif subset.ndim == 1 and is_scalar and key == subset.name:
+            return key
+        return None
 
     def aggregate(self, func, *args, **kwargs):
         raise AbstractMethodError(self)
@@ -1263,7 +1268,7 @@ class IndexOpsMixin(OpsMixin):
 
         v = self.array.nbytes
         if deep and is_object_dtype(self.dtype) and not PYPY:
-            values = cast(np.ndarray, self._values)
+            values = cast("np.ndarray", self._values)
             v += lib.memory_usage_of_objects(values)
         return v
 
