@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 jinja2 = import_optional_dependency("jinja2", extra="DataFrame.style requires jinja2.")
 from markupsafe import escape as escape_html  # markupsafe is jinja2 dependency
 
+_WRAP_ARGS = ["--wrap", "--nowrap", "--lwrap", "--rwrap", "--dwrap"]
+
 BaseFormatter = Union[str, Callable]
 ExtFormatter = Union[BaseFormatter, dict[Any, Optional[BaseFormatter]]]
 CSSPair = tuple[str, Union[str, float]]
@@ -71,7 +73,11 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+
+    loader = jinja2.FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates")
+    )
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -834,10 +840,7 @@ class StylerRenderer:
 
             data_element = _element(
                 "td",
-                (
-                    f"{self.css['data']} {self.css['row']}{r} "
-                    f"{self.css['col']}{c}{cls}"
-                ),
+                (f"{self.css['data']} {self.css['row']}{r} {self.css['col']}{c}{cls}"),
                 value,
                 data_element_visible,
                 attributes="",
@@ -956,7 +959,7 @@ class StylerRenderer:
                     idx_len = d["index_lengths"].get((lvl, r), None)
                     if idx_len is not None:  # i.e. not a sparsified entry
                         d["clines"][rn + idx_len].append(
-                            f"\\cline{{{lvln+1}-{len(visible_index_levels)+data_len}}}"
+                            f"\\cline{{{lvln + 1}-{len(visible_index_levels) + data_len}}}"
                         )
 
     def format(
@@ -1211,7 +1214,7 @@ class StylerRenderer:
         data = self.data.loc[subset]
 
         if not isinstance(formatter, dict):
-            formatter = {col: formatter for col in data.columns}
+            formatter = dict.fromkeys(data.columns, formatter)
 
         cis = self.columns.get_indexer_for(data.columns)
         ris = self.index.get_indexer_for(data.index)
@@ -1397,7 +1400,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1540,7 +1543,7 @@ class StylerRenderer:
 
         >>> df = pd.DataFrame({"samples": np.random.rand(10)})
         >>> styler = df.loc[np.random.randint(0, 10, 3)].style
-        >>> styler.relabel_index([f"sample{i+1} ({{}})" for i in range(3)])
+        >>> styler.relabel_index([f"sample{i + 1} ({{}})" for i in range(3)])
         ... # doctest: +SKIP
                          samples
         sample1 (5)     0.315811
@@ -1694,7 +1697,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -2384,21 +2387,49 @@ def _parse_latex_cell_styles(
     """
     if convert_css:
         latex_styles = _parse_latex_css_conversion(latex_styles)
-    for command, options in latex_styles[::-1]:  # in reverse for most recent style
-        formatter = {
-            "--wrap": f"{{\\{command}--to_parse {display_value}}}",
-            "--nowrap": f"\\{command}--to_parse {display_value}",
-            "--lwrap": f"{{\\{command}--to_parse}} {display_value}",
-            "--rwrap": f"\\{command}--to_parse{{{display_value}}}",
-            "--dwrap": f"{{\\{command}--to_parse}}{{{display_value}}}",
-        }
-        display_value = f"\\{command}{options} {display_value}"
-        for arg in ["--nowrap", "--wrap", "--lwrap", "--rwrap", "--dwrap"]:
-            if arg in str(options):
-                display_value = formatter[arg].replace(
-                    "--to_parse", _parse_latex_options_strip(value=options, arg=arg)
-                )
+    # Precreate the static formatter keys to avoid repeated dict construction
+    for command, options in reversed(latex_styles):  # in reverse for most recent style
+        options_str = str(options)
+        display_value_base = f"\\{command}{options} {display_value}"
+        style_found = None
+        for arg in _WRAP_ARGS:
+            if arg in options_str:
+                style_found = arg
                 break  # only ever one purposeful entry
+        if style_found:
+            if style_found == "--wrap":
+                display_value = (
+                    "{\\"
+                    f"{command}{_parse_latex_options_strip(options, style_found)} {display_value}"
+                    "}"
+                )
+            elif style_found == "--nowrap":
+                display_value = (
+                    "\\"
+                    f"{command}{_parse_latex_options_strip(options, style_found)} {display_value}"
+                )
+            elif style_found == "--lwrap":
+                display_value = (
+                    "{\\"
+                    f"{command}{_parse_latex_options_strip(options, style_found)}"
+                    "} "
+                    f"{display_value}"
+                )
+            elif style_found == "--rwrap":
+                display_value = (
+                    "\\"
+                    f"{command}{_parse_latex_options_strip(options, style_found)}"
+                    f"{{{display_value}}}"
+                )
+            elif style_found == "--dwrap":
+                display_value = (
+                    "{\\"
+                    f"{command}{_parse_latex_options_strip(options, style_found)}"
+                    "}"
+                    f"{{{display_value}}}"
+                )
+        else:
+            display_value = display_value_base
     return display_value
 
 
@@ -2486,6 +2517,11 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
             return "slshape", f"{arg}"
         return None
 
+    # Precompile color regexes (will be reused)
+    rgb_left_re = re.compile(r"(?<=\()[0-9\s%]+(?=,)")
+    rgb_mid_re = re.compile(r"(?<=,)[0-9\s%]+(?=,)")
+    rgb_last_re = re.compile(r"(?<=,)[0-9\s%]+(?=\))")
+
     def color(value, user_arg, command, comm_arg):
         """
         CSS colors have 5 formats to process:
@@ -2500,22 +2536,37 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         """
         arg = user_arg if user_arg != "" else comm_arg
 
-        if value[0] == "#" and len(value) == 7:  # color is hex code
+        if value and value[0] == "#" and len(value) == 7:  # color is hex code
             return command, f"[HTML]{{{value[1:].upper()}}}{arg}"
-        if value[0] == "#" and len(value) == 4:  # color is short hex code
-            val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
+        if value and value[0] == "#" and len(value) == 4:  # color is short hex code
+            val = f"{value[1].upper() * 2}{value[2].upper() * 2}{value[3].upper() * 2}"
             return command, f"[HTML]{{{val}}}{arg}"
-        elif value[:3] == "rgb":  # color is rgb or rgba
-            r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
-            r = float(r[:-1]) / 100 if "%" in r else int(r) / 255
-            g = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[0].strip()
-            g = float(g[:-1]) / 100 if "%" in g else int(g) / 255
+        elif value and value[:3] == "rgb":  # color is rgb or rgba
+            # Reduce repeated function calls and object lookup in regex
+            r_str = rgb_left_re.findall(value)
+            g_str = rgb_mid_re.findall(value)
+            # Try not to fail silently if the css string is off
+            if not r_str or not g_str:
+                return command, f"{{{value}}}{arg}"
+
+            r = r_str[0].strip()
+            g = g_str[0].strip()
+            r_val = float(r[:-1]) / 100 if "%" in r else int(r) / 255
+            g_val = float(g[:-1]) / 100 if "%" in g else int(g) / 255
+
             if value[3] == "a":  # color is rgba
-                b = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[1].strip()
+                if len(g_str) < 2:
+                    return command, f"{{{value}}}{arg}"
+                b = g_str[1].strip()
+                b_val = float(b[:-1]) / 100 if "%" in b else int(b) / 255
             else:  # color is rgb
-                b = re.findall("(?<=,)[0-9\\s%]+(?=\\))", value)[0].strip()
-            b = float(b[:-1]) / 100 if "%" in b else int(b) / 255
-            return command, f"[rgb]{{{r:.3f}, {g:.3f}, {b:.3f}}}{arg}"
+                b_find = rgb_last_re.findall(value)
+                if not b_find:
+                    return command, f"{{{value}}}{arg}"
+                b = b_find[0].strip()
+                b_val = float(b[:-1]) / 100 if "%" in b else int(b) / 255
+
+            return command, f"[rgb]{{{r_val:.3f}, {g_val:.3f}, {b_val:.3f}}}{arg}"
         else:
             return command, f"{{{value}}}{arg}"  # color is likely string-named
 
@@ -2527,19 +2578,22 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
     }
 
     latex_styles: CSSList = []
+    # Convert to tuple once for repeated membership tests
+    _wrap_args_tuple = tuple(_WRAP_ARGS)
     for attribute, value in styles:
         if isinstance(value, str) and "--latex" in value:
             # return the style without conversion but drop '--latex'
             latex_styles.append((attribute, value.replace("--latex", "")))
         if attribute in CONVERTED_ATTRIBUTES:
             arg = ""
-            for x in ["--wrap", "--nowrap", "--lwrap", "--dwrap", "--rwrap"]:
-                if x in str(value):
+            vstr = str(value)
+            for x in _wrap_args_tuple:
+                if x in vstr:
                     arg, value = x, _parse_latex_options_strip(value, x)
                     break
             latex_style = CONVERTED_ATTRIBUTES[attribute](value, arg)
             if latex_style is not None:
-                latex_styles.extend([latex_style])
+                latex_styles.append(latex_style)
     return latex_styles
 
 
