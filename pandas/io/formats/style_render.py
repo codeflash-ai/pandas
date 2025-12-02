@@ -71,7 +71,11 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    import os
+
+    loader = jinja2.FileSystemLoader(
+        os.path.join(os.path.dirname(__file__), "templates")
+    )
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -834,10 +838,7 @@ class StylerRenderer:
 
             data_element = _element(
                 "td",
-                (
-                    f"{self.css['data']} {self.css['row']}{r} "
-                    f"{self.css['col']}{c}{cls}"
-                ),
+                (f"{self.css['data']} {self.css['row']}{r} {self.css['col']}{c}{cls}"),
                 value,
                 data_element_visible,
                 attributes="",
@@ -956,7 +957,7 @@ class StylerRenderer:
                     idx_len = d["index_lengths"].get((lvl, r), None)
                     if idx_len is not None:  # i.e. not a sparsified entry
                         d["clines"][rn + idx_len].append(
-                            f"\\cline{{{lvln+1}-{len(visible_index_levels)+data_len}}}"
+                            f"\\cline{{{lvln + 1}-{len(visible_index_levels) + data_len}}}"
                         )
 
     def format(
@@ -1211,7 +1212,7 @@ class StylerRenderer:
         data = self.data.loc[subset]
 
         if not isinstance(formatter, dict):
-            formatter = {col: formatter for col in data.columns}
+            formatter = dict.fromkeys(data.columns, formatter)
 
         cis = self.columns.get_indexer_for(data.columns)
         ris = self.index.get_indexer_for(data.index)
@@ -1397,7 +1398,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -1540,7 +1541,7 @@ class StylerRenderer:
 
         >>> df = pd.DataFrame({"samples": np.random.rand(10)})
         >>> styler = df.loc[np.random.randint(0, 10, 3)].style
-        >>> styler.relabel_index([f"sample{i+1} ({{}})" for i in range(3)])
+        >>> styler.relabel_index([f"sample{i + 1} ({{}})" for i in range(3)])
         ... # doctest: +SKIP
                          samples
         sample1 (5)     0.315811
@@ -1694,7 +1695,7 @@ class StylerRenderer:
             return self  # clear the formatter / revert to default and avoid looping
 
         if not isinstance(formatter, dict):
-            formatter = {level: formatter for level in levels_}
+            formatter = dict.fromkeys(levels_, formatter)
         else:
             formatter = {
                 obj._get_level_number(level): formatter_
@@ -2474,6 +2475,11 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
     Ignore conversion if tagged with `--latex` option, skipped if no conversion found.
     """
 
+    # Avoid repeated string object creation by reusing constants
+    RGB_RE = re.compile(
+        r"(?<=\()[0-9\s%]+(?=,)|(?<=,)[0-9\s%]+(?=,)|(?<=,)[0-9\s%]+(?=\))"
+    )
+
     def font_weight(value, arg) -> tuple[str, str] | None:
         if value in ("bold", "bolder"):
             return "bfseries", f"{arg}"
@@ -2503,18 +2509,27 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
         if value[0] == "#" and len(value) == 7:  # color is hex code
             return command, f"[HTML]{{{value[1:].upper()}}}{arg}"
         if value[0] == "#" and len(value) == 4:  # color is short hex code
-            val = f"{value[1].upper()*2}{value[2].upper()*2}{value[3].upper()*2}"
+            val = f"{value[1].upper() * 2}{value[2].upper() * 2}{value[3].upper() * 2}"
             return command, f"[HTML]{{{val}}}{arg}"
-        elif value[:3] == "rgb":  # color is rgb or rgba
-            r = re.findall("(?<=\\()[0-9\\s%]+(?=,)", value)[0].strip()
-            r = float(r[:-1]) / 100 if "%" in r else int(r) / 255
-            g = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[0].strip()
-            g = float(g[:-1]) / 100 if "%" in g else int(g) / 255
+        elif value.startswith("rgb"):
+            # Use compiled regex for much faster repeated finds
+            matches = RGB_RE.findall(value)
+            r_s, g_s = matches[0].strip(), matches[1].strip()
             if value[3] == "a":  # color is rgba
-                b = re.findall("(?<=,)[0-9\\s%]+(?=,)", value)[1].strip()
+                b_s = matches[2].strip()
             else:  # color is rgb
-                b = re.findall("(?<=,)[0-9\\s%]+(?=\\))", value)[0].strip()
-            b = float(b[:-1]) / 100 if "%" in b else int(b) / 255
+                b_s = matches[2].strip()
+
+            # Use int/float cpu branch only once per channel
+            def channel(chan):
+                if "%" in chan:
+                    return float(chan[:-1]) / 100
+                else:
+                    return int(chan) / 255
+
+            r = channel(r_s)
+            g = channel(g_s)
+            b = channel(b_s)
             return command, f"[rgb]{{{r:.3f}, {g:.3f}, {b:.3f}}}{arg}"
         else:
             return command, f"{{{value}}}{arg}"  # color is likely string-named
@@ -2527,19 +2542,31 @@ def _parse_latex_css_conversion(styles: CSSList) -> CSSList:
     }
 
     latex_styles: CSSList = []
+    append = latex_styles.append  # Local var for fast loop append
+
     for attribute, value in styles:
-        if isinstance(value, str) and "--latex" in value:
-            # return the style without conversion but drop '--latex'
-            latex_styles.append((attribute, value.replace("--latex", "")))
-        if attribute in CONVERTED_ATTRIBUTES:
-            arg = ""
-            for x in ["--wrap", "--nowrap", "--lwrap", "--dwrap", "--rwrap"]:
-                if x in str(value):
-                    arg, value = x, _parse_latex_options_strip(value, x)
-                    break
-            latex_style = CONVERTED_ATTRIBUTES[attribute](value, arg)
+        # Avoid .replace unless '--latex' in value; check str type only once
+        if isinstance(value, str):
+            if "--latex" in value:
+                # return the style without conversion but drop '--latex'
+                append((attribute, value.replace("--latex", "")))
+            if attribute in CONVERTED_ATTRIBUTES:
+                arg = ""
+                value_str = value  # Type already known
+                for x in ["--wrap", "--nowrap", "--lwrap", "--dwrap", "--rwrap"]:
+                    if x in value_str:
+                        arg = x
+                        value_str = _parse_latex_options_strip(value_str, x)
+                        break
+                latex_style = CONVERTED_ATTRIBUTES[attribute](value_str, arg)
+                if latex_style is not None:
+                    append(latex_style)
+        elif attribute in CONVERTED_ATTRIBUTES:
+            # Fast-path: non-str value, just call conversion (no arg needed)
+            latex_style = CONVERTED_ATTRIBUTES[attribute](value, "")
             if latex_style is not None:
-                latex_styles.extend([latex_style])
+                append(latex_style)
+
     return latex_styles
 
 
