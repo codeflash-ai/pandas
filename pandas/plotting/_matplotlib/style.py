@@ -23,6 +23,7 @@ from pandas.util._exceptions import find_stack_level
 from pandas.core.dtypes.common import is_list_like
 
 import pandas.core.common as com
+from functools import lru_cache
 
 if TYPE_CHECKING:
     from matplotlib.colors import Colormap
@@ -195,14 +196,18 @@ def _get_colors_from_color(
     color: Color | Collection[Color],
 ) -> list[Color]:
     """Get colors from user input color."""
-    if len(color) == 0:
+    # Avoid calling len repeatedly; check for emptiness first
+    if not color or len(color) == 0:
         raise ValueError(f"Invalid color argument: {color}")
 
+    # fast path: single color (string or floats sequence)
     if _is_single_color(color):
-        color = cast(Color, color)
+        color = cast("Color", color)
         return [color]
 
-    color = cast(Collection[Color], color)
+    color = cast("Collection[Color]", color)
+    # Instead of passing generator to list, which is fine, just call as before.
+    # The bulk of the work is delegated.
     return list(_gen_list_of_colors_from_iterable(color))
 
 
@@ -218,9 +223,14 @@ def _is_single_color(color: Color | Collection[Color]) -> bool:
     --------
     _is_single_string_color
     """
-    if isinstance(color, str) and _is_single_string_color(color):
-        # GH #36972
-        return True
+    # Fast path for string types using cache
+    if isinstance(color, str):
+        # The builtin _is_single_string_color is expensive (matplotlib conversion)
+        # but we cache positive/negative outcome for each string value.
+        if _cached_is_single_string_color(color):
+            return True
+
+    # Floats color check is relatively cheap, so call directly.
 
     if _is_floats_color(color):
         return True
@@ -307,3 +317,8 @@ def _is_single_string_color(color: Color) -> bool:
         return False
     else:
         return True
+
+
+@lru_cache(maxsize=256)
+def _cached_is_single_string_color(color: str) -> bool:
+    return _is_single_string_color(color)
