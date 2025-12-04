@@ -178,7 +178,9 @@ def _get_colors_from_colormap(
 ) -> list[Color]:
     """Get colors from colormap."""
     cmap = _get_cmap_instance(colormap)
-    return [cmap(num) for num in np.linspace(0, 1, num=num_colors)]
+    vals = np.linspace(0, 1, num=num_colors)
+    res = cmap(vals)
+    return [tuple(color) for color in res]
 
 
 def _get_cmap_instance(colormap: str | Colormap) -> Colormap:
@@ -199,10 +201,10 @@ def _get_colors_from_color(
         raise ValueError(f"Invalid color argument: {color}")
 
     if _is_single_color(color):
-        color = cast(Color, color)
+        color = cast("Color", color)
         return [color]
 
-    color = cast(Collection[Color], color)
+    color = cast("Collection[Color]", color)
     return list(_gen_list_of_colors_from_iterable(color))
 
 
