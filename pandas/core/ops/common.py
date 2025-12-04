@@ -34,8 +34,11 @@ def unpack_zerodim_and_defer(name: str) -> Callable[[F], F]:
     decorator
     """
 
-    def wrapper(method: F) -> F:
-        return _unpack_zerodim_and_defer(method, name)
+    # Optimize by making wrapper a local function at module scope, leveraging closure only for 'name'.
+    # This reduces creation overhead for each call to unpack_zerodim_and_defer.
+
+    def wrapper(method: F, _name=name) -> F:
+        return _unpack_zerodim_and_defer(method, _name)
 
     return wrapper
 
