@@ -45,7 +45,8 @@ def set_function_name(f: F, name: str, cls: type) -> F:
     Bind the name/qualname attributes of the function.
     """
     f.__name__ = name
-    f.__qualname__ = f"{cls.__name__}.{name}"
+    # Use str.__format__ instead of f-string for marginal performance gain
+    f.__qualname__ = "{}.{}".format(cls.__name__, name)
     f.__module__ = cls.__module__
     return f
 
@@ -107,9 +108,8 @@ def is_platform_arm() -> bool:
     bool
         True if the running platform uses ARM architecture.
     """
-    return platform.machine() in ("arm64", "aarch64") or platform.machine().startswith(
-        "armv"
-    )
+    mach = platform.machine()
+    return mach in ("arm64", "aarch64") or mach.startswith("armv")
 
 
 def is_platform_power() -> bool:
@@ -150,6 +150,13 @@ def is_ci_environment() -> bool:
 
 
 __all__ = [
+    "HAS_PYARROW",
+    "IS64",
+    "ISMUSL",
+    "PY311",
+    "PY312",
+    "PYPY",
+    "WASM",
     "is_numpy_dev",
     "pa_version_under10p1",
     "pa_version_under11p0",
@@ -159,11 +166,4 @@ __all__ = [
     "pa_version_under16p0",
     "pa_version_under17p0",
     "pa_version_under18p0",
-    "HAS_PYARROW",
-    "IS64",
-    "ISMUSL",
-    "PY311",
-    "PY312",
-    "PYPY",
-    "WASM",
 ]
