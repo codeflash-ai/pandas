@@ -165,35 +165,39 @@ def _generate_range_overflow_safe_signed(
     if side == "end":
         stride *= -1
 
-    with np.errstate(over="raise"):
-        addend = np.int64(periods) * np.int64(stride)
-        try:
-            # easy case with no overflows
-            result = np.int64(endpoint) + addend
-            if result == iNaT:
-                # Putting this into a DatetimeArray/TimedeltaArray
-                #  would incorrectly be interpreted as NaT
-                raise OverflowError
-            return int(result)
-        except (FloatingPointError, OverflowError):
-            # with endpoint negative and addend positive we risk
-            #  FloatingPointError; with reversed signed we risk OverflowError
-            pass
+    # Avoid entering the numpy error handler/context for simple int cases
+    periods_i64 = np.int64(periods)
+    stride_i64 = np.int64(stride)
+    endpoint_i64 = np.int64(endpoint)
+    try:
+        # Compute addend and result as plain Python int to avoid overhead
+        addend_py = int(periods) * int(stride)
+        result_py = endpoint + addend_py
 
-        # if stride and endpoint had opposite signs, then endpoint + addend
-        #  should never overflow.  so they must have the same signs
-        assert (stride > 0 and endpoint >= 0) or (stride < 0 and endpoint <= 0)
+        # Use int64 to verify overflow per NumPy's iNaT
+        result_i64 = np.int64(result_py)
+        if result_i64 == iNaT:
+            raise OverflowError
 
-        if stride > 0:
-            # watch out for very special case in which we just slightly
-            #  exceed implementation bounds, but when passing the result to
-            #  np.arange will get a result slightly within the bounds
+        # np.int64(result_py) already checks for int64 overflow,
+        # so we can just return fast if not special NaT case
+        return result_py
+    except (FloatingPointError, OverflowError):
+        pass
 
-            uresult = np.uint64(endpoint) + np.uint64(addend)
-            i64max = np.uint64(i8max)
-            assert uresult > i64max
-            if uresult <= i64max + np.uint64(stride):
-                return int(uresult)
+    # If we get here, fallback to more careful checks (needed only in overflow edge cases)
+    # Logic unchanged, just move up variable allocation, and use Python int where possible
+    assert (stride > 0 and endpoint >= 0) or (stride < 0 and endpoint <= 0)
+
+    if stride > 0:
+        # watch out for very special case in which we just slightly
+        #  exceed implementation bounds, but when passing the result to
+        #  np.arange will get a result slightly within the bounds
+        uresult = np.uint64(endpoint) + np.uint64(int(periods) * int(stride))
+        i64max = np.uint64(i8max)
+        assert uresult > i64max
+        if uresult <= i64max + np.uint64(stride):
+            return int(uresult)
 
     raise OutOfBoundsDatetime(
         f"Cannot generate range with {side}={endpoint} and periods={periods}"
