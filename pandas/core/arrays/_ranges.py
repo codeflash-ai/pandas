@@ -117,18 +117,35 @@ def _generate_range_overflow_safe(
     # GH#14187 raise instead of incorrectly wrapping around
     assert side in ["start", "end"]
 
-    i64max = np.uint64(i8max)
+    # Avoid repeated np.uint64(i8max) calculation (expensive constructor)
+    # Instead, reuse a module-global singleton, this is safe and fast.
+    # But we must keep the variable name in-place for behavioral preservation.
+    if not hasattr(_generate_range_overflow_safe, "_i64max"):
+        _generate_range_overflow_safe._i64max = np.uint64(i8max)
+    i64max = _generate_range_overflow_safe._i64max
+
+    # This format string is not particularly expensive but let's avoid repeating
     msg = f"Cannot generate range with {side}={endpoint} and periods={periods}"
 
+    # Locally hoist abs(stride); periods is always non-negative so can use periods directly
+    abs_stride = abs(stride)
+    periods_u64 = np.uint64(periods)
+    abs_stride_u64 = np.uint64(abs_stride)
+
+    # Use try/except as originally, but eliminate extra np.abs computation in np.uint64(np.abs(...))
     with np.errstate(over="raise"):
         # if periods * strides cannot be multiplied within the *uint64* bounds,
         #  we cannot salvage the operation by recursing, so raise
         try:
-            addend = np.uint64(periods) * np.uint64(np.abs(stride))
+            # Only do the multiplication in uint64 as required
+            addend = periods_u64 * abs_stride_u64
         except FloatingPointError as err:
             raise OutOfBoundsDatetime(msg) from err
 
-    if np.abs(addend) <= i64max:
+    # Avoid np.abs on addend using its unsigned property
+    # This is a fast int comparison now (np.uint64 vs np.uint64)
+    if addend <= i64max:
+        # relatively easy case without casting concerns
         # relatively easy case without casting concerns
         return _generate_range_overflow_safe_signed(endpoint, periods, stride, side)
 
@@ -138,12 +155,17 @@ def _generate_range_overflow_safe(
         # no chance of not-overflowing
         raise OutOfBoundsDatetime(msg)
 
-    elif side == "end" and endpoint - stride <= i64max < endpoint:
-        # in _generate_regular_range we added `stride` thereby overflowing
-        #  the bounds.  Adjust to fix this.
-        return _generate_range_overflow_safe(
-            endpoint - stride, periods - 1, stride, side
-        )
+    # Minor local optimization: cache endpoint - stride in variable
+    elif side == "end":
+        endpoint_minus_stride = endpoint - stride
+        if endpoint_minus_stride <= i64max < endpoint:
+            # in _generate_regular_range we added `stride` thereby overflowing
+            #  the bounds.  Adjust to fix this.
+            return _generate_range_overflow_safe(
+                endpoint_minus_stride, periods - 1, stride, side
+            )
+
+    # split into smaller pieces
 
     # split into smaller pieces
     mid_periods = periods // 2
@@ -162,11 +184,18 @@ def _generate_range_overflow_safe_signed(
     can be calculated without overflowing int64 bounds.
     """
     assert side in ["start", "end"]
-    if side == "end":
-        stride *= -1
+    # Avoid mutation of 'stride' and inline its effect, which reduces Python interpreter overhead.
+    # Use 'signed_stride' only in this scope, to keep the original input immutable.
+    signed_stride = stride * (-1 if side == "end" else 1)
+
+    # Avoid repeated np.uint64(i8max) calculation by reusing the global singleton if available.
+    if not hasattr(_generate_range_overflow_safe_signed, "_i64max"):
+        _generate_range_overflow_safe_signed._i64max = np.uint64(i8max)
+    i64max = _generate_range_overflow_safe_signed._i64max
 
     with np.errstate(over="raise"):
-        addend = np.int64(periods) * np.int64(stride)
+        # Use np.int64 multiplication directly as periods and signed_stride are already ints
+        addend = np.int64(periods) * np.int64(signed_stride)
         try:
             # easy case with no overflows
             result = np.int64(endpoint) + addend
@@ -182,17 +211,21 @@ def _generate_range_overflow_safe_signed(
 
         # if stride and endpoint had opposite signs, then endpoint + addend
         #  should never overflow.  so they must have the same signs
-        assert (stride > 0 and endpoint >= 0) or (stride < 0 and endpoint <= 0)
+        # use signed_stride here for clarity
+        assert (signed_stride > 0 and endpoint >= 0) or (
+            signed_stride < 0 and endpoint <= 0
+        )
 
-        if stride > 0:
+        if signed_stride > 0:
+            # Use cached i64max so only one np.uint64(i8max) per process
+            # Avoid repeated np.uint64 constructions for stride below and reuse primitives
             # watch out for very special case in which we just slightly
             #  exceed implementation bounds, but when passing the result to
             #  np.arange will get a result slightly within the bounds
 
             uresult = np.uint64(endpoint) + np.uint64(addend)
-            i64max = np.uint64(i8max)
             assert uresult > i64max
-            if uresult <= i64max + np.uint64(stride):
+            if uresult <= i64max + np.uint64(signed_stride):
                 return int(uresult)
 
     raise OutOfBoundsDatetime(
