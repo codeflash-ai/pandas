@@ -253,10 +253,16 @@ class CSSToExcelConverter:
 
     def build_alignment(self, props: Mapping[str, str]) -> dict[str, bool | str | None]:
         # TODO: text-indent, padding-left -> alignment.indent
+        # Only materialize keys with at least one non-None value
+        horizontal = props.get("text-align")
+        vertical = self._get_vertical_alignment(props)
+        wrap_text = self._get_is_wrap_text(props)
+        if horizontal is None and vertical is None and wrap_text is None:
+            return {}
         return {
-            "horizontal": props.get("text-align"),
-            "vertical": self._get_vertical_alignment(props),
-            "wrap_text": self._get_is_wrap_text(props),
+            "horizontal": horizontal,
+            "vertical": vertical,
+            "wrap_text": wrap_text,
         }
 
     def _get_vertical_alignment(self, props: Mapping[str, str]) -> str | None:
@@ -273,17 +279,25 @@ class CSSToExcelConverter:
     def build_border(
         self, props: Mapping[str, str]
     ) -> dict[str, dict[str, str | None]]:
-        return {
-            side: {
-                "style": self._border_style(
-                    props.get(f"border-{side}-style"),
-                    props.get(f"border-{side}-width"),
-                    self.color_to_excel(props.get(f"border-{side}-color")),
-                ),
-                "color": self.color_to_excel(props.get(f"border-{side}-color")),
-            }
-            for side in ["top", "right", "bottom", "left"]
-        }
+        # Only include borders for sides that have a style or color set
+        out: dict[str, dict[str, str | None]] = {}
+        sides = ("top", "right", "bottom", "left")
+        get = props.get
+        color_to_excel = self.color_to_excel  # Local var for speed
+        _border_style = self._border_style  # Local var for speed
+
+        for side in sides:
+            side_color = get(f"border-{side}-color")
+            side_style = get(f"border-{side}-style")
+            side_width = get(f"border-{side}-width")
+            color_xl = color_to_excel(side_color)
+            style_xl = _border_style(side_style, side_width, color_xl)
+            if style_xl is not None or color_xl is not None:
+                out[side] = {
+                    "style": style_xl,
+                    "color": color_xl,
+                }
+        return out
 
     def _border_style(
         self, style: str | None, width: str | None, color: str | None
@@ -366,30 +380,54 @@ class CSSToExcelConverter:
         #       -excel-pattern-bgcolor and -excel-pattern-type
         fill_color = props.get("background-color")
         if fill_color not in (None, "transparent", "none"):
-            return {"fgColor": self.color_to_excel(fill_color), "patternType": "solid"}
+            fg_color = self.color_to_excel(fill_color)
+            if fg_color is not None:
+                return {"fgColor": fg_color, "patternType": "solid"}
 
     def build_number_format(self, props: Mapping[str, str]) -> dict[str, str | None]:
         fc = props.get("number-format")
-        fc = fc.replace("§", ";") if isinstance(fc, str) else fc
-        return {"format_code": fc}
+        if isinstance(fc, str):
+            fc = fc.replace("§", ";")
+        if fc is not None:
+            return {"format_code": fc}
+        return {}
 
     def build_font(
         self, props: Mapping[str, str]
     ) -> dict[str, bool | float | str | None]:
         font_names = self._get_font_names(props)
         decoration = self._get_decoration(props)
-        return {
-            "name": font_names[0] if font_names else None,
-            "family": self._select_font_family(font_names),
-            "size": self._get_font_size(props),
-            "bold": self._get_is_bold(props),
-            "italic": self._get_is_italic(props),
-            "underline": ("single" if "underline" in decoration else None),
-            "strike": ("line-through" in decoration) or None,
-            "color": self.color_to_excel(props.get("color")),
-            # shadow if nonzero digit before shadow color
-            "shadow": self._get_shadow(props),
-        }
+        color = self.color_to_excel(props.get("color"))
+        font_size = self._get_font_size(props)
+        is_bold = self._get_is_bold(props)
+        is_italic = self._get_is_italic(props)
+        underline = "single" if "underline" in decoration else None
+        strike = ("line-through" in decoration) or None
+        family = self._select_font_family(font_names)
+        shadow = self._get_shadow(props)
+
+        # Build font dict only with non-None values for better memory usage
+        font_dict = {}
+        if font_names and font_names[0] is not None:
+            font_dict["name"] = font_names[0]
+        if family is not None:
+            font_dict["family"] = family
+        if font_size is not None:
+            font_dict["size"] = font_size
+        if is_bold is not None:
+            font_dict["bold"] = is_bold
+        if is_italic is not None:
+            font_dict["italic"] = is_italic
+        if underline is not None:
+            font_dict["underline"] = underline
+        if strike is not None:
+            font_dict["strike"] = strike
+        if color is not None:
+            font_dict["color"] = color
+        if shadow is not None:
+            font_dict["shadow"] = shadow
+
+        return font_dict
 
     def _get_is_bold(self, props: Mapping[str, str]) -> bool | None:
         weight = props.get("font-weight")
@@ -669,7 +707,7 @@ class ExcelFormatter:
 
             colnames = self.columns
             if self._has_aliases:
-                self.header = cast(Sequence, self.header)
+                self.header = cast("Sequence", self.header)
                 if len(self.header) != len(self.columns):
                     raise ValueError(
                         f"Writing {len(self.columns)} cols "
