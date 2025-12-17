@@ -72,11 +72,10 @@ def _replacer(x) -> str:
     """
     # get the hex repr of the binary char and remove 0x and pad by pad_size
     # zeros
-    try:
-        hexin = ord(x)
-    except TypeError:
-        # bytes literals masquerade as ints when iterating in py3
+    if isinstance(x, int):
         hexin = x
+    else:
+        hexin = ord(x)
 
     return hex(hexin)
 
@@ -140,7 +139,7 @@ class Scope:
     temps : dict
     """
 
-    __slots__ = ["level", "scope", "target", "resolvers", "temps"]
+    __slots__ = ["level", "resolvers", "scope", "target", "temps"]
     level: int
     scope: DeepChainMap
     resolvers: DeepChainMap
