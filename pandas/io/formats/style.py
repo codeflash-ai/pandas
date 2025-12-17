@@ -275,22 +275,38 @@ class Styler(StylerRenderer):
             precision=precision,
         )
 
-        # validate ordered args
-        thousands = thousands or get_option("styler.format.thousands")
-        decimal = decimal or get_option("styler.format.decimal")
-        na_rep = na_rep or get_option("styler.format.na_rep")
-        escape = escape or get_option("styler.format.escape")
-        formatter = formatter or get_option("styler.format.formatter")
+        # Validate and retrieve options only if necessary
+        get = get_option  # minor local lookup optimization
+        thousands = (
+            thousands if thousands is not None else get("styler.format.thousands")
+        )
+        decimal = decimal if decimal is not None else get("styler.format.decimal")
+        na_rep = na_rep if na_rep is not None else get("styler.format.na_rep")
+        escape = escape if escape is not None else get("styler.format.escape")
+        formatter = (
+            formatter if formatter is not None else get("styler.format.formatter")
+        )
         # precision is handled by superclass as default for performance
 
-        self.format(
-            formatter=formatter,
-            precision=precision,
-            na_rep=na_rep,
-            escape=escape,
-            decimal=decimal,
-            thousands=thousands,
-        )
+        # Only call format if at least one format argument is explicitly set.
+        # This prevents unnecessarily clearing and re-setting display funcs.
+        # format() will still run with all current settings if any are set.
+        if (
+            formatter is not None
+            or precision is not None
+            or na_rep is not None
+            or escape is not None
+            or decimal is not None
+            or thousands is not None
+        ):
+            self.format(
+                formatter=formatter,
+                precision=precision,
+                na_rep=na_rep,
+                escape=escape,
+                decimal=decimal,
+                thousands=thousands,
+            )
 
     def concat(self, other: Styler) -> Styler:
         """
@@ -2367,15 +2383,15 @@ class Styler(StylerRenderer):
         `Table Visualization <../../user_guide/style.ipynb>`_ for more examples.
         """
         msg = "`caption` must be either a string or 2-tuple of strings."
-        if isinstance(caption, (list, tuple)):
-            if (
-                len(caption) != 2
-                or not isinstance(caption[0], str)
-                or not isinstance(caption[1], str)
+        # Eliminate unnecessary isinstance for tuple/list by using sequence check only if not a str.
+        if not isinstance(caption, str):
+            if not (
+                isinstance(caption, (list, tuple))
+                and len(caption) == 2
+                and isinstance(caption[0], str)
+                and isinstance(caption[1], str)
             ):
                 raise ValueError(msg)
-        elif not isinstance(caption, str):
-            raise ValueError(msg)
         self.caption = caption
         return self
 
@@ -2483,7 +2499,7 @@ class Styler(StylerRenderer):
                 for i, level in enumerate(levels_):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({level+1}) th",
+                            "selector": f"thead tr:nth-child({level + 1}) th",
                             "props": props
                             + (
                                 f"top:{i * pixel_size}px; height:{pixel_size}px; "
@@ -2494,7 +2510,7 @@ class Styler(StylerRenderer):
                 if not all(name is None for name in self.index.names):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({obj.nlevels+1}) th",
+                            "selector": f"thead tr:nth-child({obj.nlevels + 1}) th",
                             "props": props
                             + (
                                 f"top:{(len(levels_)) * pixel_size}px; "
@@ -2514,7 +2530,7 @@ class Styler(StylerRenderer):
                     styles.extend(
                         [
                             {
-                                "selector": f"thead tr th:nth-child({level+1})",
+                                "selector": f"thead tr th:nth-child({level + 1})",
                                 "props": props_ + "z-index:3 !important;",
                             },
                             {
@@ -4109,8 +4125,10 @@ def _bar(
         if end > start:
             cell_css += "background: linear-gradient(90deg,"
             if start > 0:
-                cell_css += f" transparent {start*100:.1f}%, {color} {start*100:.1f}%,"
-            cell_css += f" {color} {end*100:.1f}%, transparent {end*100:.1f}%)"
+                cell_css += (
+                    f" transparent {start * 100:.1f}%, {color} {start * 100:.1f}%,"
+                )
+            cell_css += f" {color} {end * 100:.1f}%, transparent {end * 100:.1f}%)"
         return cell_css
 
     def css_calc(x, left: float, right: float, align: str, color: str | list | tuple):
