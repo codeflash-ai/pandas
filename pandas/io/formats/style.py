@@ -2483,7 +2483,7 @@ class Styler(StylerRenderer):
                 for i, level in enumerate(levels_):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({level+1}) th",
+                            "selector": f"thead tr:nth-child({level + 1}) th",
                             "props": props
                             + (
                                 f"top:{i * pixel_size}px; height:{pixel_size}px; "
@@ -2494,7 +2494,7 @@ class Styler(StylerRenderer):
                 if not all(name is None for name in self.index.names):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({obj.nlevels+1}) th",
+                            "selector": f"thead tr:nth-child({obj.nlevels + 1}) th",
                             "props": props
                             + (
                                 f"top:{(len(levels_)) * pixel_size}px; "
@@ -2514,7 +2514,7 @@ class Styler(StylerRenderer):
                     styles.extend(
                         [
                             {
-                                "selector": f"thead tr th:nth-child({level+1})",
+                                "selector": f"thead tr th:nth-child({level + 1})",
                                 "props": props_ + "z-index:3 !important;",
                             },
                             {
@@ -3877,7 +3877,8 @@ def _validate_apply_axis_arg(
     -------
     ndarray
     """
-    dtype = {"dtype": dtype} if dtype else {}
+    dtype_kw = {"dtype": dtype} if dtype is not None else {}
+    # raise if input is wrong for axis:
     # raise if input is wrong for axis:
     if isinstance(arg, Series) and isinstance(data, DataFrame):
         raise ValueError(
@@ -3890,17 +3891,36 @@ def _validate_apply_axis_arg(
             f"operations is a Series with 'axis in [0,1]'"
         )
     if isinstance(arg, (Series, DataFrame)):  # align indx / cols to data
-        arg = arg.reindex_like(data).to_numpy(**dtype)
-    else:
-        arg = np.asarray(arg, **dtype)
-        assert isinstance(arg, np.ndarray)  # mypy requirement
+        # Memory-efficient: reindex_like then to_numpy only once
+        arg = arg.reindex_like(data).to_numpy(**dtype_kw)
         if arg.shape != data.shape:  # check valid input
             raise ValueError(
                 f"supplied '{arg_name}' is not correct shape for data over "
                 f"selected 'axis': got {arg.shape}, "
                 f"expected {data.shape}"
             )
-    return arg
+        return arg
+    elif isinstance(arg, np.ndarray):
+        # already ndarray; no need to convert with np.asarray
+        if arg.shape != data.shape:
+            raise ValueError(
+                f"supplied '{arg_name}' is not correct shape for data over "
+                f"selected 'axis': got {arg.shape}, "
+                f"expected {data.shape}"
+            )
+        if dtype is not None and arg.dtype != np.dtype(dtype):
+            arg = arg.astype(dtype, copy=False)
+        return arg
+    else:
+        # fast path for python Sequence
+        arr = np.asarray(arg, **dtype_kw)
+        if arr.shape != data.shape:
+            raise ValueError(
+                f"supplied '{arg_name}' is not correct shape for data over "
+                f"selected 'axis': got {arr.shape}, "
+                f"expected {data.shape}"
+            )
+        return arr
 
 
 def _background_gradient(
@@ -3989,11 +4009,15 @@ def _highlight_between(
     """
     Return an array of css props based on condition of data values within given range.
     """
-    if np.iterable(left) and not isinstance(left, str):
-        left = _validate_apply_axis_arg(left, "left", None, data)
+    # Efficient conversion and validation of bounds
+    left_array = None
+    right_array = None
+    if left is not None and np.iterable(left) and not isinstance(left, str):
+        left_array = _validate_apply_axis_arg(left, "left", None, data)
+    if right is not None and np.iterable(right) and not isinstance(right, str):
+        right_array = _validate_apply_axis_arg(right, "right", None, data)
 
-    if np.iterable(right) and not isinstance(right, str):
-        right = _validate_apply_axis_arg(right, "right", None, data)
+    # get ops with correct boundary attribution
 
     # get ops with correct boundary attribution
     if inclusive == "both":
@@ -4010,28 +4034,26 @@ def _highlight_between(
             f"got {inclusive}"
         )
 
-    g_left = (
-        # error: Argument 2 to "ge" has incompatible type "Union[str, float,
-        # Period, Timedelta, Interval[Any], datetime64, timedelta64, datetime,
-        # Sequence[Any], ndarray[Any, Any], NDFrame]"; expected "Union
-        # [SupportsDunderLE, SupportsDunderGE, SupportsDunderGT, SupportsDunderLT]"
-        ops[0](data, left)  # type: ignore[arg-type]
-        if left is not None
-        else np.full(data.shape, True, dtype=bool)
-    )
+    # Use direct masking; only convert pd objects to ndarrays if necessary
+    if left is not None:
+        g_left = ops[0](data, left_array if left_array is not None else left)
+    else:
+        g_left = np.full(data.shape, True, dtype=bool)
+
     if isinstance(g_left, (DataFrame, Series)):
         g_left = g_left.where(pd.notna(g_left), False)
-    l_right = (
-        # error: Argument 2 to "le" has incompatible type "Union[str, float,
-        # Period, Timedelta, Interval[Any], datetime64, timedelta64, datetime,
-        # Sequence[Any], ndarray[Any, Any], NDFrame]"; expected "Union
-        # [SupportsDunderLE, SupportsDunderGE, SupportsDunderGT, SupportsDunderLT]"
-        ops[1](data, right)  # type: ignore[arg-type]
-        if right is not None
-        else np.full(data.shape, True, dtype=bool)
-    )
+        g_left = g_left.to_numpy(dtype=bool, copy=False)
+
+    if right is not None:
+        l_right = ops[1](data, right_array if right_array is not None else right)
+    else:
+        l_right = np.full(data.shape, True, dtype=bool)
+
     if isinstance(l_right, (DataFrame, Series)):
         l_right = l_right.where(pd.notna(l_right), False)
+        l_right = l_right.to_numpy(dtype=bool, copy=False)
+
+    # Only perform a single np.where after all masks are computed as ndarrays
     return np.where(g_left & l_right, props, "")
 
 
@@ -4109,8 +4131,10 @@ def _bar(
         if end > start:
             cell_css += "background: linear-gradient(90deg,"
             if start > 0:
-                cell_css += f" transparent {start*100:.1f}%, {color} {start*100:.1f}%,"
-            cell_css += f" {color} {end*100:.1f}%, transparent {end*100:.1f}%)"
+                cell_css += (
+                    f" transparent {start * 100:.1f}%, {color} {start * 100:.1f}%,"
+                )
+            cell_css += f" {color} {end * 100:.1f}%, transparent {end * 100:.1f}%)"
         return cell_css
 
     def css_calc(x, left: float, right: float, align: str, color: str | list | tuple):
