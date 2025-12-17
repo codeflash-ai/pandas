@@ -1615,11 +1615,22 @@ class Styler(StylerRenderer):
                 "with non-unique index or columns."
             )
 
-        for cn in attrs.columns:
-            j = self.columns.get_loc(cn)
-            ser = attrs[cn]
-            for rn, c in ser.items():
-                if not c or pd.isna(c):
+        # Optimization: precompute column locations to avoid repeated get_loc
+        columns = list(attrs.columns)
+        columns_get_loc = {cn: self.columns.get_loc(cn) for cn in columns}
+        attrs_values = attrs.values
+        attrs_index = list(attrs.index)
+        # Use vectorized numpy isnan where possible, otherwise fallback to pd.isna
+        pd_isna = pd.isna
+
+        for col_idx, cn in enumerate(columns):
+            j = columns_get_loc[cn]
+            col_values = attrs_values[:, col_idx]
+            for row_idx, rn in enumerate(attrs_index):
+                c = col_values[row_idx]
+                # Note: Avoid checking `not c` when c is np.nan, as this is not always safe.
+                # First check for None/empty string (fast), then call pd.isna.
+                if c is None or c == "" or pd_isna(c):
                     continue
                 css_list = maybe_convert_css_to_tuples(c)
                 i = self.index.get_loc(rn)
@@ -2060,11 +2071,15 @@ class Styler(StylerRenderer):
         return self
 
     def _map(self, func: Callable, subset: Subset | None = None, **kwargs) -> Styler:
-        func = partial(func, **kwargs)  # map doesn't take kwargs?
+        # Avoid functools.partial if no kwargs (likely case), which speeds up map slightly
+        if kwargs:
+            func_used = partial(func, **kwargs)
+        else:
+            func_used = func
         if subset is None:
             subset = IndexSlice[:]
         subset = non_reducing_slice(subset)
-        result = self.data.loc[subset].map(func)
+        result = self.data.loc[subset].map(func_used)
         self._update_ctx(result)
         return self
 
@@ -2483,7 +2498,7 @@ class Styler(StylerRenderer):
                 for i, level in enumerate(levels_):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({level+1}) th",
+                            "selector": f"thead tr:nth-child({level + 1}) th",
                             "props": props
                             + (
                                 f"top:{i * pixel_size}px; height:{pixel_size}px; "
@@ -2494,7 +2509,7 @@ class Styler(StylerRenderer):
                 if not all(name is None for name in self.index.names):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({obj.nlevels+1}) th",
+                            "selector": f"thead tr:nth-child({obj.nlevels + 1}) th",
                             "props": props
                             + (
                                 f"top:{(len(levels_)) * pixel_size}px; "
@@ -2514,7 +2529,7 @@ class Styler(StylerRenderer):
                     styles.extend(
                         [
                             {
-                                "selector": f"thead tr th:nth-child({level+1})",
+                                "selector": f"thead tr th:nth-child({level + 1})",
                                 "props": props_ + "z-index:3 !important;",
                             },
                             {
@@ -4109,8 +4124,10 @@ def _bar(
         if end > start:
             cell_css += "background: linear-gradient(90deg,"
             if start > 0:
-                cell_css += f" transparent {start*100:.1f}%, {color} {start*100:.1f}%,"
-            cell_css += f" {color} {end*100:.1f}%, transparent {end*100:.1f}%)"
+                cell_css += (
+                    f" transparent {start * 100:.1f}%, {color} {start * 100:.1f}%,"
+                )
+            cell_css += f" {color} {end * 100:.1f}%, transparent {end * 100:.1f}%)"
         return cell_css
 
     def css_calc(x, left: float, right: float, align: str, color: str | list | tuple):
