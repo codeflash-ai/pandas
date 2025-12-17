@@ -264,6 +264,34 @@ class Styler(StylerRenderer):
         escape: str | None = None,
         formatter: ExtFormatter | None = None,
     ) -> None:
+        # Pre-compute get_option values once, avoiding repeated global lookups
+        _styler_format_opts = {
+            "thousands": thousands,
+            "decimal": decimal,
+            "na_rep": na_rep,
+            "escape": escape,
+            "formatter": formatter,
+        }
+        opts_missing = [k for k, v in _styler_format_opts.items() if v is None]
+        if opts_missing:
+            # If any option is None, fetch all needed at once efficiently
+            getopt = get_option
+            thousands = (
+                thousands
+                if thousands is not None
+                else getopt("styler.format.thousands")
+            )
+            decimal = (
+                decimal if decimal is not None else getopt("styler.format.decimal")
+            )
+            na_rep = na_rep if na_rep is not None else getopt("styler.format.na_rep")
+            escape = escape if escape is not None else getopt("styler.format.escape")
+            formatter = (
+                formatter
+                if formatter is not None
+                else getopt("styler.format.formatter")
+            )
+
         super().__init__(
             data=data,
             uuid=uuid,
@@ -274,13 +302,6 @@ class Styler(StylerRenderer):
             cell_ids=cell_ids,
             precision=precision,
         )
-
-        # validate ordered args
-        thousands = thousands or get_option("styler.format.thousands")
-        decimal = decimal or get_option("styler.format.decimal")
-        na_rep = na_rep or get_option("styler.format.na_rep")
-        escape = escape or get_option("styler.format.escape")
-        formatter = formatter or get_option("styler.format.formatter")
         # precision is handled by superclass as default for performance
 
         self.format(
@@ -2483,7 +2504,7 @@ class Styler(StylerRenderer):
                 for i, level in enumerate(levels_):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({level+1}) th",
+                            "selector": f"thead tr:nth-child({level + 1}) th",
                             "props": props
                             + (
                                 f"top:{i * pixel_size}px; height:{pixel_size}px; "
@@ -2494,7 +2515,7 @@ class Styler(StylerRenderer):
                 if not all(name is None for name in self.index.names):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({obj.nlevels+1}) th",
+                            "selector": f"thead tr:nth-child({obj.nlevels + 1}) th",
                             "props": props
                             + (
                                 f"top:{(len(levels_)) * pixel_size}px; "
@@ -2514,7 +2535,7 @@ class Styler(StylerRenderer):
                     styles.extend(
                         [
                             {
-                                "selector": f"thead tr th:nth-child({level+1})",
+                                "selector": f"thead tr th:nth-child({level + 1})",
                                 "props": props_ + "z-index:3 !important;",
                             },
                             {
@@ -4109,8 +4130,10 @@ def _bar(
         if end > start:
             cell_css += "background: linear-gradient(90deg,"
             if start > 0:
-                cell_css += f" transparent {start*100:.1f}%, {color} {start*100:.1f}%,"
-            cell_css += f" {color} {end*100:.1f}%, transparent {end*100:.1f}%)"
+                cell_css += (
+                    f" transparent {start * 100:.1f}%, {color} {start * 100:.1f}%,"
+                )
+            cell_css += f" {color} {end * 100:.1f}%, transparent {end * 100:.1f}%)"
         return cell_css
 
     def css_calc(x, left: float, right: float, align: str, color: str | list | tuple):
