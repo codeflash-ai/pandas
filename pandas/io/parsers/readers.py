@@ -1219,8 +1219,7 @@ class TextFileReader(abc.Iterator):
                 and value != getattr(value, "value", default)
             ):
                 raise ValueError(
-                    f"The {argname!r} option is not supported with the "
-                    f"'pyarrow' engine"
+                    f"The {argname!r} option is not supported with the 'pyarrow' engine"
                 )
             options[argname] = value
 
@@ -1396,8 +1395,7 @@ class TextFileReader(abc.Iterator):
             if not is_integer(skiprows) and skiprows is not None:
                 # pyarrow expects skiprows to be passed as an integer
                 raise ValueError(
-                    "skiprows argument must be an integer when using "
-                    "engine='pyarrow'"
+                    "skiprows argument must be an integer when using engine='pyarrow'"
                 )
         else:
             if is_integer(skiprows):
@@ -1670,15 +1668,27 @@ def _clean_na_values(na_values, keep_default_na: bool = True, floatify: bool = T
 
 def _floatify_na_values(na_values):
     # create float versions of the na_values
-    result = set()
-    for v in na_values:
-        try:
-            v = float(v)
-            if not np.isnan(v):
-                result.add(v)
-        except (TypeError, ValueError, OverflowError):
-            pass
-    return result
+    # OPTIMIZATION: Use a list comprehension and numpy for batch conversion, with a filter for np.isnan.
+    # This vectorizes the float conversion and isnan check.
+    na_values = list(na_values)
+    try:
+        # Try fast path: attempt np.array conversion once
+        arr = np.array(na_values, dtype="float64")
+        # Select only non-nan members
+        mask = ~np.isnan(arr)
+        # Use set comprehension to avoid duplicates and preserve type float
+        return set(arr[mask])
+    except (TypeError, ValueError, OverflowError):
+        # Fallback: process one by one, only for those not convertible to float array
+        result = set()
+        for v in na_values:
+            try:
+                v = float(v)
+                if not np.isnan(v):
+                    result.add(v)
+            except (TypeError, ValueError, OverflowError):
+                pass
+        return result
 
 
 def _stringify_na_values(na_values, floatify: bool) -> set[str | float]:
