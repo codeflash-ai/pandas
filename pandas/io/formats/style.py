@@ -275,12 +275,19 @@ class Styler(StylerRenderer):
             precision=precision,
         )
 
-        # validate ordered args
-        thousands = thousands or get_option("styler.format.thousands")
-        decimal = decimal or get_option("styler.format.decimal")
-        na_rep = na_rep or get_option("styler.format.na_rep")
-        escape = escape or get_option("styler.format.escape")
-        formatter = formatter or get_option("styler.format.formatter")
+        # validate ordered args (option lookups are performed only if necessary)
+        if thousands is None:
+            thousands = get_option("styler.format.thousands")
+        if decimal is None:
+            decimal = get_option("styler.format.decimal")
+        if na_rep is None:
+            na_rep = get_option("styler.format.na_rep")
+        if escape is None:
+            escape = get_option("styler.format.escape")
+        if formatter is None:
+            formatter = get_option("styler.format.formatter")
+        # precision is handled by superclass as default for performance
+
         # precision is handled by superclass as default for performance
 
         self.format(
@@ -2483,7 +2490,7 @@ class Styler(StylerRenderer):
                 for i, level in enumerate(levels_):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({level+1}) th",
+                            "selector": f"thead tr:nth-child({level + 1}) th",
                             "props": props
                             + (
                                 f"top:{i * pixel_size}px; height:{pixel_size}px; "
@@ -2494,7 +2501,7 @@ class Styler(StylerRenderer):
                 if not all(name is None for name in self.index.names):
                     styles.append(
                         {
-                            "selector": f"thead tr:nth-child({obj.nlevels+1}) th",
+                            "selector": f"thead tr:nth-child({obj.nlevels + 1}) th",
                             "props": props
                             + (
                                 f"top:{(len(levels_)) * pixel_size}px; "
@@ -2514,7 +2521,7 @@ class Styler(StylerRenderer):
                     styles.extend(
                         [
                             {
-                                "selector": f"thead tr th:nth-child({level+1})",
+                                "selector": f"thead tr th:nth-child({level + 1})",
                                 "props": props_ + "z-index:3 !important;",
                             },
                             {
@@ -3710,21 +3717,251 @@ class Styler(StylerRenderer):
 
         return MyStyler
 
-    @overload
     def pipe(
         self,
         func: Callable[Concatenate[Self, P], T],
         *args: P.args,
         **kwargs: P.kwargs,
-    ) -> T: ...
+    ) -> T:
+        """
+        Apply ``func(self, *args, **kwargs)``, and return the result.
 
-    @overload
+        Parameters
+        ----------
+        func : function
+            Function to apply to the Styler.  Alternatively, a
+            ``(callable, keyword)`` tuple where ``keyword`` is a string
+            indicating the keyword of ``callable`` that expects the Styler.
+        *args : optional
+            Arguments passed to `func`.
+        **kwargs : optional
+            A dictionary of keyword arguments passed into ``func``.
+
+        Returns
+        -------
+        object :
+            The value returned by ``func``.
+
+        See Also
+        --------
+        DataFrame.pipe : Analogous method for DataFrame.
+        Styler.apply : Apply a CSS-styling function column-wise, row-wise, or
+            table-wise.
+
+        Notes
+        -----
+        Like :meth:`DataFrame.pipe`, this method can simplify the
+        application of several user-defined functions to a styler.  Instead
+        of writing:
+
+        .. code-block:: python
+
+            f(g(df.style.format(precision=3), arg1=a), arg2=b, arg3=c)
+
+        users can write:
+
+        .. code-block:: python
+
+            (df.style.format(precision=3).pipe(g, arg1=a).pipe(f, arg2=b, arg3=c))
+
+        In particular, this allows users to define functions that take a
+        styler object, along with other parameters, and return the styler after
+        making styling changes (such as calling :meth:`Styler.apply` or
+        :meth:`Styler.set_properties`).
+
+        Examples
+        --------
+
+        **Common Use**
+
+        A common usage pattern is to pre-define styling operations which
+        can be easily applied to a generic styler in a single ``pipe`` call.
+
+        >>> def some_highlights(styler, min_color="red", max_color="blue"):
+        ...     styler.highlight_min(color=min_color, axis=None)
+        ...     styler.highlight_max(color=max_color, axis=None)
+        ...     styler.highlight_null()
+        ...     return styler
+        >>> df = pd.DataFrame([[1, 2, 3, pd.NA], [pd.NA, 4, 5, 6]], dtype="Int64")
+        >>> df.style.pipe(some_highlights, min_color="green")  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_hl.png
+
+        Since the method returns a ``Styler`` object it can be chained with other
+        methods as if applying the underlying highlighters directly.
+
+        >>> (
+        ...     df.style.format("{:.1f}")
+        ...     .pipe(some_highlights, min_color="green")
+        ...     .highlight_between(left=2, right=5)
+        ... )  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_hl2.png
+
+        **Advanced Use**
+
+        Sometimes it may be necessary to pre-define styling functions, but in the case
+        where those functions rely on the styler, data or context. Since
+        ``Styler.use`` and ``Styler.export`` are designed to be non-data dependent,
+        they cannot be used for this purpose. Additionally the ``Styler.apply``
+        and ``Styler.format`` type methods are not context aware, so a solution
+        is to use ``pipe`` to dynamically wrap this functionality.
+
+        Suppose we want to code a generic styling function that highlights the final
+        level of a MultiIndex. The number of levels in the Index is dynamic so we
+        need the ``Styler`` context to define the level.
+
+        >>> def highlight_last_level(styler):
+        ...     return styler.apply_index(
+        ...         lambda v: "background-color: pink; color: yellow",
+        ...         axis="columns",
+        ...         level=styler.columns.nlevels - 1,
+        ...     )  # doctest: +SKIP
+        >>> df.columns = pd.MultiIndex.from_product([["A", "B"], ["X", "Y"]])
+        >>> df.style.pipe(highlight_last_level)  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_applymap.png
+
+        Additionally suppose we want to highlight a column header if there is any
+        missing data in that column.
+        In this case we need the data object itself to determine the effect on the
+        column headers.
+
+        >>> def highlight_header_missing(styler, level):
+        ...     def dynamic_highlight(s):
+        ...         return np.where(
+        ...             styler.data.isna().any(), "background-color: red;", ""
+        ...         )
+        ...
+        ...     return styler.apply_index(dynamic_highlight, axis=1, level=level)
+        >>> df.style.pipe(highlight_header_missing, level=1)  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_applydata.png
+        """
+        return com.pipe(self, func, *args, **kwargs)
+
     def pipe(
         self,
         func: tuple[Callable[..., T], str],
         *args: Any,
         **kwargs: Any,
-    ) -> T: ...
+    ) -> T:
+        """
+        Apply ``func(self, *args, **kwargs)``, and return the result.
+
+        Parameters
+        ----------
+        func : function
+            Function to apply to the Styler.  Alternatively, a
+            ``(callable, keyword)`` tuple where ``keyword`` is a string
+            indicating the keyword of ``callable`` that expects the Styler.
+        *args : optional
+            Arguments passed to `func`.
+        **kwargs : optional
+            A dictionary of keyword arguments passed into ``func``.
+
+        Returns
+        -------
+        object :
+            The value returned by ``func``.
+
+        See Also
+        --------
+        DataFrame.pipe : Analogous method for DataFrame.
+        Styler.apply : Apply a CSS-styling function column-wise, row-wise, or
+            table-wise.
+
+        Notes
+        -----
+        Like :meth:`DataFrame.pipe`, this method can simplify the
+        application of several user-defined functions to a styler.  Instead
+        of writing:
+
+        .. code-block:: python
+
+            f(g(df.style.format(precision=3), arg1=a), arg2=b, arg3=c)
+
+        users can write:
+
+        .. code-block:: python
+
+            (df.style.format(precision=3).pipe(g, arg1=a).pipe(f, arg2=b, arg3=c))
+
+        In particular, this allows users to define functions that take a
+        styler object, along with other parameters, and return the styler after
+        making styling changes (such as calling :meth:`Styler.apply` or
+        :meth:`Styler.set_properties`).
+
+        Examples
+        --------
+
+        **Common Use**
+
+        A common usage pattern is to pre-define styling operations which
+        can be easily applied to a generic styler in a single ``pipe`` call.
+
+        >>> def some_highlights(styler, min_color="red", max_color="blue"):
+        ...     styler.highlight_min(color=min_color, axis=None)
+        ...     styler.highlight_max(color=max_color, axis=None)
+        ...     styler.highlight_null()
+        ...     return styler
+        >>> df = pd.DataFrame([[1, 2, 3, pd.NA], [pd.NA, 4, 5, 6]], dtype="Int64")
+        >>> df.style.pipe(some_highlights, min_color="green")  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_hl.png
+
+        Since the method returns a ``Styler`` object it can be chained with other
+        methods as if applying the underlying highlighters directly.
+
+        >>> (
+        ...     df.style.format("{:.1f}")
+        ...     .pipe(some_highlights, min_color="green")
+        ...     .highlight_between(left=2, right=5)
+        ... )  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_hl2.png
+
+        **Advanced Use**
+
+        Sometimes it may be necessary to pre-define styling functions, but in the case
+        where those functions rely on the styler, data or context. Since
+        ``Styler.use`` and ``Styler.export`` are designed to be non-data dependent,
+        they cannot be used for this purpose. Additionally the ``Styler.apply``
+        and ``Styler.format`` type methods are not context aware, so a solution
+        is to use ``pipe`` to dynamically wrap this functionality.
+
+        Suppose we want to code a generic styling function that highlights the final
+        level of a MultiIndex. The number of levels in the Index is dynamic so we
+        need the ``Styler`` context to define the level.
+
+        >>> def highlight_last_level(styler):
+        ...     return styler.apply_index(
+        ...         lambda v: "background-color: pink; color: yellow",
+        ...         axis="columns",
+        ...         level=styler.columns.nlevels - 1,
+        ...     )  # doctest: +SKIP
+        >>> df.columns = pd.MultiIndex.from_product([["A", "B"], ["X", "Y"]])
+        >>> df.style.pipe(highlight_last_level)  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_applymap.png
+
+        Additionally suppose we want to highlight a column header if there is any
+        missing data in that column.
+        In this case we need the data object itself to determine the effect on the
+        column headers.
+
+        >>> def highlight_header_missing(styler, level):
+        ...     def dynamic_highlight(s):
+        ...         return np.where(
+        ...             styler.data.isna().any(), "background-color: red;", ""
+        ...         )
+        ...
+        ...     return styler.apply_index(dynamic_highlight, axis=1, level=level)
+        >>> df.style.pipe(highlight_header_missing, level=1)  # doctest: +SKIP
+
+        .. figure:: ../../_static/style/df_pipe_applydata.png
+        """
+        return com.pipe(self, func, *args, **kwargs)
 
     def pipe(
         self,
@@ -4109,8 +4346,10 @@ def _bar(
         if end > start:
             cell_css += "background: linear-gradient(90deg,"
             if start > 0:
-                cell_css += f" transparent {start*100:.1f}%, {color} {start*100:.1f}%,"
-            cell_css += f" {color} {end*100:.1f}%, transparent {end*100:.1f}%)"
+                cell_css += (
+                    f" transparent {start * 100:.1f}%, {color} {start * 100:.1f}%,"
+                )
+            cell_css += f" {color} {end * 100:.1f}%, transparent {end * 100:.1f}%)"
         return cell_css
 
     def css_calc(x, left: float, right: float, align: str, color: str | list | tuple):

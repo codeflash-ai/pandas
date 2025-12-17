@@ -62,6 +62,9 @@ if TYPE_CHECKING:
 
     from pandas import Index
 
+    ...
+    ...
+
 
 def flatten(line):
     """
@@ -307,7 +310,7 @@ def maybe_iterable_to_list(obj: Iterable[T] | T) -> Collection[T] | T:
     """
     if isinstance(obj, abc.Iterable) and not isinstance(obj, abc.Sized):
         return list(obj)
-    obj = cast(Collection, obj)
+    obj = cast("Collection", obj)
     return obj
 
 
@@ -470,22 +473,86 @@ def random_state(state: RandomState | None = None):
 _T = TypeVar("_T")  # Secondary TypeVar for use in pipe's type hints
 
 
-@overload
 def pipe(
     obj: _T,
     func: Callable[Concatenate[_T, P], T],
     *args: P.args,
     **kwargs: P.kwargs,
-) -> T: ...
+) -> T:
+    """
+    Apply a function ``func`` to object ``obj`` either by passing obj as the
+    first argument to the function or, in the case that the func is a tuple,
+    interpret the first element of the tuple as a function and pass the obj to
+    that function as a keyword argument whose key is the value of the second
+    element of the tuple.
+
+    Parameters
+    ----------
+    func : callable or tuple of (callable, str)
+        Function to apply to this object or, alternatively, a
+        ``(callable, data_keyword)`` tuple where ``data_keyword`` is a
+        string indicating the keyword of ``callable`` that expects the
+        object.
+    *args : iterable, optional
+        Positional arguments passed into ``func``.
+    **kwargs : dict, optional
+        A dictionary of keyword arguments passed into ``func``.
+
+    Returns
+    -------
+    object : the return type of ``func``.
+    """
+    if isinstance(func, tuple):
+        # Assigning to func_ so pyright understands that it's a callable
+        func_, target = func
+        if target in kwargs:
+            msg = f"{target} is both the pipe target and a keyword argument"
+            raise ValueError(msg)
+        kwargs[target] = obj
+        return func_(*args, **kwargs)
+    else:
+        return func(obj, *args, **kwargs)
 
 
-@overload
 def pipe(
     obj: Any,
     func: tuple[Callable[..., T], str],
     *args: Any,
     **kwargs: Any,
-) -> T: ...
+) -> T:
+    """
+    Apply a function ``func`` to object ``obj`` either by passing obj as the
+    first argument to the function or, in the case that the func is a tuple,
+    interpret the first element of the tuple as a function and pass the obj to
+    that function as a keyword argument whose key is the value of the second
+    element of the tuple.
+
+    Parameters
+    ----------
+    func : callable or tuple of (callable, str)
+        Function to apply to this object or, alternatively, a
+        ``(callable, data_keyword)`` tuple where ``data_keyword`` is a
+        string indicating the keyword of ``callable`` that expects the
+        object.
+    *args : iterable, optional
+        Positional arguments passed into ``func``.
+    **kwargs : dict, optional
+        A dictionary of keyword arguments passed into ``func``.
+
+    Returns
+    -------
+    object : the return type of ``func``.
+    """
+    if isinstance(func, tuple):
+        # Assigning to func_ so pyright understands that it's a callable
+        func_, target = func
+        if target in kwargs:
+            msg = f"{target} is both the pipe target and a keyword argument"
+            raise ValueError(msg)
+        kwargs[target] = obj
+        return func_(*args, **kwargs)
+    else:
+        return func(obj, *args, **kwargs)
 
 
 def pipe(
